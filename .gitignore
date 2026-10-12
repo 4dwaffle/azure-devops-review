@@ -1,0 +1,23 @@
+# User-specific review state, drafts, and local configuration
+artifacts/
+
+# Installed dependencies and generated assets
+node_modules/
+dist/
+dist-test/
+build/
+*.vsix
+azure-tab/vss-extension.package.json
+browser-roslyn/results.json
+
+# Local credentials and machine-specific files
+.env
+.env.*
+!.env.example
+.npmrc
+*.pfx
+*.p12
+*.key
+*.log
+.DS_Store
+Thumbs.db

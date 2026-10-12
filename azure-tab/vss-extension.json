@@ -1,0 +1,40 @@
+{
+  "manifestVersion": 1,
+  "id": "azure-filtered-review",
+  "version": "0.1.3",
+  "name": "Filtered Review",
+  "description": "Read-only PR review with local ignore filters, Monaco diffs and private progress.",
+  "publisher": "VaclavBerny",
+  "public": false,
+  "targets": [
+    {
+      "id": "Microsoft.VisualStudio.Services"
+    }
+  ],
+  "categories": [
+    "Azure Repos"
+  ],
+  "scopes": [
+    "vso.code"
+  ],
+  "files": [
+    {
+      "path": "dist",
+      "addressable": true
+    }
+  ],
+  "contributions": [
+    {
+      "id": "filtered-review-tab",
+      "type": "ms.vss-web.tab",
+      "targets": [
+        "ms.vss-code-web.pr-tabs"
+      ],
+      "properties": {
+        "name": "Filtered Review",
+        "uri": "dist/index.html",
+        "order": 40
+      }
+    }
+  ]
+}
