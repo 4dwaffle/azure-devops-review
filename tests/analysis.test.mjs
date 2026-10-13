@@ -58,6 +58,26 @@ test('npm and NuGet locks, added/removed dependencies and invalid manifests rema
     assert.throws(() => parseDependencies('A.csproj', '<!DOCTYPE Project SYSTEM "file:///secret"><Project/>'), /DTD/);
     assert.equal(dependencyDelta([file('A.csproj', '', '<Project>')]).warnings.length, 1);
 });
+test('Namespace relocation proposals preserve declarations, literals, comments, mixed edits and ambiguity', () => {
+    const origin = file('Entity.cs', 'namespace Old.Data; class Entity {}', 'namespace New.Data; class Entity {}');
+    const reference = file('Reference.cs', 'using Old.Data; class R { Old.Data.Entity value; }', 'using New.Data; class R { New.Data.Entity value; }');
+    const result = detectRenames([origin, reference, file('Literal.cs', 'using Old.Data; class X { string s="Old.Data"; }', 'using New.Data; class X { string s="New.Data"; }'), file('Mixed.cs', 'using Old.Data; class X { int x=1; }', 'using New.Data; class X { int x=2; }')]);
+    assert.deepEqual(result.pairs.map(pair => [pair.kind, pair.from, pair.to]), [['namespace','Old.Data','New.Data']]);
+    assert.equal(result.classifications.find(value => value.path === 'Entity.cs').renameOnly, false);
+    assert.equal(result.classifications.find(value => value.path === 'Reference.cs').namespaceRenameOnly, true);
+    for (const path of ['Literal.cs','Mixed.cs']) assert.equal(result.classifications.find(value => value.path === path).renameOnly, false);
+    const moved = detectRenames([file('Old/Entity.cs', origin.original, '', {status:'D'}), file('New/Entity.cs','',origin.modified,{status:'A'}),reference]);
+    assert.equal(moved.classifications.find(value => value.path === 'Reference.cs').namespaceRenameOnly, true);
+    const ambiguous = detectRenames([origin,file('Other.cs', 'namespace Old.Data; class Other {}', 'namespace Other.Data; class Other {}'),reference]);
+    assert.equal(ambiguous.pairs.length,0);
+});
+test('Source dependency diagrams include explicit imports without inventing bindings or literal dependencies', () => {
+    const result = dependencyDelta([file('A.cs','using Old.Data; using System; class A {}','using New.Data; using System; class A { string s="using Fake.Data;"; }')]);
+    assert.equal(result.manifests,0); assert.equal(result.sourceFiles,1); assert.equal(result.changes,2);
+    assert.deepEqual(result.edges.map(value=>[value.name,value.status]),[['Old.Data','removed'],['System','unchanged'],['New.Data','added']]);
+    assert.equal(result.edges[0].kind,'csharp-import'); assert.match(result.edges[0].scope,/syntax only/);
+    assert.equal(dependencyDelta([file('A.cs','using Old;\n#if X\n#endif','using New;\n#if X\n#endif')]).warnings.length,1);
+});
 test('analysis reads immutable blobs with bounded concurrency and keeps dependencies independent of filters', async () => {
     const files = [file('A.cs', 'class Old {}', 'class New {}'), file('Ref.cs', 'Old x;', 'New x;'), file('package.json', '{}', '{"dependencies":{"A":"1"}}'), file('Moved.txt', 'x', 'x', { status: 'R100', blobUnchanged: true })];
     let active = 0, maximum = 0;

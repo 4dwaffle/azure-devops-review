@@ -146,14 +146,35 @@ export function parseDependencies(path, text) {
     for (const value of values) { if (unique.has(value.key)) throw new Error('Duplicate dependency declarations require manual review'); unique.set(value.key, value); }
     return values;
 }
+function sourceDependencies(path, text) {
+    if (!text.trim()) return [];
+    const values = tokens(text);
+    if (!values) throw new Error('Unsupported C# syntax or source size; source dependency diagram is incomplete');
+    const result = new Map();
+    for (let index = 0; index < values.length; index++) {
+        if (values[index] !== 'using') continue;
+        let end = index + 1;
+        while (end < values.length && ![';', '{', '}'].includes(values[end])) end++;
+        if (values[end] !== ';') continue;
+        let name = values.slice(index + 1, end);
+        if (name[0] === 'static') name = name.slice(1);
+        if (name[1] === '=') name = name.slice(2);
+        if (!name.length || !name.every((token, i) => i % 2 ? token === '.' || token === '::' : /^@?[\p{ID_Start}_][\p{ID_Continue}_]*$/u.test(token))) continue;
+        const edge = dependency(path, 'csharp-import', name.join(''), '', 'explicit using (syntax only)');
+        result.set(edge.key, edge);
+    }
+    return [...result.values()];
+}
 export function dependencyDelta(files) {
-    const before = new Map(), after = new Map(), warnings = []; let manifests = 0;
+    const before = new Map(), after = new Map(), warnings = []; let manifests = 0, sourceFiles = 0;
     for (const file of files) {
-        if (!dependencyManifest(file.path) && !dependencyManifest(file.oldPath || file.path)) continue;
-        manifests++;
+        const source = /\.cs$/i.test(file.path);
+        if (!source && !dependencyManifest(file.path) && !dependencyManifest(file.oldPath || file.path)) continue;
+        if (source) sourceFiles++; else manifests++;
         try {
-            if (file.binary) throw new Error(file.reason || 'Binary manifest');
-            const left = parseDependencies(file.oldPath || file.path, file.original), right = parseDependencies(file.path, file.modified);
+            if (file.binary || file.error) throw new Error(file.reason || file.error || 'Binary file');
+            const parse = source ? sourceDependencies : parseDependencies;
+            const left = parse(file.oldPath || file.path, file.original), right = parse(file.path, file.modified);
             left.forEach(value => before.set(value.key, value)); right.forEach(value => after.set(value.key, value));
         } catch (error) { warnings.push({ path: file.path, message: error.message }); }
     }
@@ -165,7 +186,7 @@ export function dependencyDelta(files) {
         nodes.set(value.from, { id: value.from, label: value.owner, kind: 'file', path: value.owner });
         nodes.set(value.to, { id: value.to, label: value.kind === 'project' ? value.to.slice(5) : value.name, kind: value.kind, path: value.kind === 'project' ? value.to.slice(5) : null });
     }
-    return { nodes: [...nodes.values()], edges, changes: edges.filter(edge => edge.status !== 'unchanged').length, manifests, warnings };
+    return { nodes: [...nodes.values()], edges, changes: edges.filter(edge => edge.status !== 'unchanged').length, manifests, sourceFiles, warnings };
 }
 function typeDeclarations(values) {
     if (!values) return [];
@@ -186,6 +207,45 @@ function typeDeclarations(values) {
     }
     return declarations;
 }
+function replaceNamespace(values, from, to) {
+    if (!values) return null;
+    const left = from.split('.').flatMap((part, index) => index ? ['.', part] : [part]);
+    const right = to.split('.').flatMap((part, index) => index ? ['.', part] : [part]);
+    const result = [];
+    for (let index = 0; index < values.length; index++) {
+        if (values[index - 1] !== '.' && left.every((part, offset) => values[index + offset] === part)) {
+            result.push(...right); index += left.length - 1;
+        } else result.push(values[index]);
+    }
+    return result;
+}
+function namespaceRenames(prepared) {
+    const proposed = [], origins = new Set(), added = new Map();
+    for (const file of prepared.filter(file => !file.original && file.modified)) {
+        const key = posix.basename(file.path);
+        if (!added.has(key)) added.set(key, []); added.get(key).push(file);
+    }
+    for (const file of prepared) {
+        const before = typeDeclarations(file.left);
+        if (!file.original || !before.length) continue;
+        const matches = (file.modified ? [file] : added.get(posix.basename(file.path)) || []).flatMap(next => {
+            const after = typeDeclarations(next.right);
+            if (before.length !== after.length || before.some((value, index) => value.kind !== after[index].kind || value.name !== after[index].name)) return [];
+            const from = before[0].namespace, to = after[0].namespace;
+            if (!from || !to || from === to || before.some(value => value.namespace !== from) || after.some(value => value.namespace !== to)) return [];
+            if (JSON.stringify(replaceNamespace(file.left, from, to)) !== JSON.stringify(next.right)) return [];
+            return [{from, to, namespace:'', kind:'namespace', declaration:next.path, previous:file.path}];
+        });
+        if (matches.length === 1) proposed.push(matches[0]);
+    }
+    const pairs = [...new Map(proposed.filter(pair => !proposed.some(other =>
+        other.from === pair.from && other.to !== pair.to || other.to === pair.to && other.from !== pair.from
+        || pair.from.startsWith(other.from + '.') && pair.to !== other.to + pair.from.slice(other.from.length)
+    )).map(pair => [pair.from, pair])).values()].sort((a,b) => a.from.length - b.from.length);
+    for (const pair of proposed) { origins.add(pair.previous); origins.add(pair.declaration); }
+    const roots = pairs.filter(pair => !pairs.some(other => other !== pair && pair.from.startsWith(other.from + '.') && pair.to === other.to + pair.from.slice(other.from.length)));
+    return {pairs:roots, origins};
+}
 export function detectRenames(files) {
     const prepared = files.filter(file => /\.cs$/i.test(file.path) && !file.binary).map(file => ({ ...file, left: tokens(file.original), right: tokens(file.modified) }));
     const proposals = [], origins = new Set();
@@ -200,13 +260,24 @@ export function detectRenames(files) {
     };
     for (const file of prepared) if (file.original && file.modified) propose(file, file);
     const deleted = prepared.filter(file => file.original && !file.modified), added = prepared.filter(file => !file.original && file.modified);
-    for (const left of deleted) {
-        const matches = added.filter(right => {
-            const before = typeDeclarations(left.left), after = typeDeclarations(right.right);
-            if (before.length !== 1 || after.length !== 1 || before[0].kind !== after[0].kind || before[0].namespace !== after[0].namespace) return false;
-            return JSON.stringify(left.left.map(token => token === before[0].name ? after[0].name : token)) === JSON.stringify(right.right);
-        });
-        if (matches.length === 1 && deleted.filter(candidate => JSON.stringify(candidate.left) === JSON.stringify(left.left)).length === 1) propose(left, matches[0], true);
+    const signature = (values) => {
+        const declarations = typeDeclarations(values);
+        if (declarations.length !== 1) return null;
+        const declaration = declarations[0];
+        return JSON.stringify([declaration.kind, declaration.namespace, values.map(token => token === declaration.name ? '__DECLARED_TYPE__' : token)]);
+    };
+    const indexed = list => {
+        const map = new Map();
+        for (const file of list) {
+            const key = signature(file.original ? file.left : file.right);
+            if (key !== null) { if (!map.has(key)) map.set(key, []); map.get(key).push(file); }
+        }
+        return map;
+    };
+    const oldIndex = indexed(deleted), newIndex = indexed(added);
+    for (const [key, previous] of oldIndex) {
+        const next = newIndex.get(key);
+        if (previous.length === 1 && next?.length === 1) propose(previous[0], next[0], true);
     }
     const ambiguous = new Set();
     const declarations = prepared.flatMap(file => [...typeDeclarations(file.left), ...typeDeclarations(file.right)]);
@@ -219,7 +290,22 @@ export function detectRenames(files) {
         const renameOnly = fileRenameOnly || !origins.has(file.path) && matches.length > 0 && file.original && file.modified && file.right && JSON.stringify(file.left.map(token => replacements.get(token) || token)) === JSON.stringify(file.right);
         return { path: file.path, renameOnly: Boolean(renameOnly), fileRenameOnly, renames: renameOnly ? pairs.filter(pair => matches.includes(pair.from)) : [] };
     });
-    return { pairs, classifications, ambiguous: [...ambiguous] };
+    const namespaces = namespaceRenames(prepared);
+    for (const file of prepared) {
+        if (!file.original || !file.modified || !file.left || !file.right || origins.has(file.path) || namespaces.origins.has(file.path)) continue;
+        let transformed = file.left;
+        const used = [];
+        for (const pair of namespaces.pairs) {
+            const next = replaceNamespace(transformed, pair.from, pair.to);
+            if (JSON.stringify(next) !== JSON.stringify(transformed)) used.push(pair);
+            transformed = next;
+        }
+        if (used.length && JSON.stringify(transformed) === JSON.stringify(file.right)) {
+            const value = classifications.find(value => value.path === file.path);
+            value.renameOnly = true; value.namespaceRenameOnly = true; value.renames = used;
+        }
+    }
+    return { pairs: [...pairs, ...namespaces.pairs], classifications, ambiguous: [...ambiguous] };
 }
 export async function analyzeReview(review, readFile, classify = false, configurations = {}) {
     const generated = generatedClassifier(configurations), contents = new Map();
@@ -246,5 +332,5 @@ export async function analyzeReview(review, readFile, classify = false, configur
     const classifiedFiles = new Map(classifications.map(value => [value.path, { ...value, ...renameClassification.get(value.path) }]));
     for (const file of review.files) if (/^R100$/.test(file.status) && file.blobUnchanged === true) classifiedFiles.set(file.path, { ...classifiedFiles.get(file.path), path: file.path, renameOnly: true, fileRenameOnly: true });
     if (classify) for (const file of review.files) classifiedFiles.set(file.path, { ...classifiedFiles.get(file.path), path: file.path, ...generated(file, contents.get(file.path)) });
-    return { classified: classify, classifications: [...classifiedFiles.values()], renames: { pairs: renamed.pairs, ambiguous: renamed.ambiguous, semanticVerification: false }, dependencies: dependencyDelta(manifests) };
+    return { classified: classify, classifications: [...classifiedFiles.values()], renames: { pairs: renamed.pairs, ambiguous: renamed.ambiguous, semanticVerification: false }, dependencies: dependencyDelta([...manifests, ...sourceFiles]) };
 }

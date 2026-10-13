@@ -27,7 +27,7 @@ export async function loadPullRequest(connection,id) {
  const modes={};
  await Promise.all([base,source].map(async version=>{const commit=await client.getCommit(version,repository,project,0);const tree=await client.getTree(repository,commit.treeId,project,undefined,true);modes[version]=new Map(tree.treeEntries.map(entry=>[entry.relativePath.replace(/^\//,''),entry]));}));
  let latestIteration=null,threads=[],threadError;
- try {const iterations=await client.getPullRequestIterations(repository,id,project);latestIteration=iterations.filter(iteration=>iteration.sourceRefCommit?.commitId===source&&iteration.targetRefCommit?.commitId===target).at(-1)?.id??null;threads=await client.getThreads(repository,id,project);}catch(error){threadError=`Comment threads unavailable: ${error.message||error}`;}
+ try {const iterations=await client.getPullRequestIterations(repository,id,project);const latest=[...iterations].sort((a,b)=>b.id-a.id)[0];latestIteration=latest?.sourceRefCommit?.commitId===source&&latest?.targetRefCommit?.commitId===target?latest.id:null;threads=await client.getThreads(repository,id,project,latestIteration??undefined,latestIteration??undefined);}catch(error){threadError=`Comment threads unavailable: ${error.message||error}`;}
  await mapBounded(files,async file=>{
   const left=modes[base].get(file.oldPath||file.path),right=modes[source].get(file.path);
   file.beforeMode=left?.mode;file.afterMode=right?.mode;file.modeChanged=!!left&&!!right&&left.mode!==right.mode;

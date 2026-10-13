@@ -15,7 +15,24 @@ using WasmSharp.Core.Services;
 class ReviewEquivalence
 {
     class File { public string path, original, modified; public bool formattingOnly, usingsOnly, renameOnly; }
-    class Pair { public string ns, from, to; }
+    class Pair { public string ns, from, to, kind; }
+    static Pair[] namespacePairs = Array.Empty<Pair>();
+    static string NormalizeNamespace(string name)
+    {
+        var prefix = name.StartsWith("global::") ? "global::" : "";
+        var value = name.Substring(prefix.Length);
+        foreach (var pair in namespacePairs.OrderByDescending(pair => pair.from.Length))
+            if (value == pair.from || value.StartsWith(pair.from + ".")) return prefix + pair.to + value.Substring(pair.from.Length);
+        return name;
+    }
+    static IEnumerable<INamedTypeSymbol> Types(INamespaceSymbol ns)
+    {
+        foreach (var type in ns.GetTypeMembers()) yield return type;
+        foreach (var child in ns.GetNamespaceMembers()) foreach (var type in Types(child)) yield return type;
+    }
+    static string MetadataName(INamedTypeSymbol type) => type.ContainingType != null
+        ? MetadataName(type.ContainingType) + "+" + type.MetadataName
+        : (type.ContainingNamespace.IsGlobalNamespace ? "" : type.ContainingNamespace.ToDisplayString() + ".") + type.MetadataName;
     static string D(string value) => Encoding.UTF8.GetString(Convert.FromBase64String(value));
     static string E(string value) => Convert.ToBase64String(Encoding.UTF8.GetBytes(value));
     static readonly CSharpParseOptions ParseOptions = new CSharpParseOptions(LanguageVersion.Latest);
@@ -58,6 +75,7 @@ class ReviewEquivalence
     static string Identity(ISymbol symbol, Dictionary<INamedTypeSymbol, INamedTypeSymbol> renames, bool normalize)
     {
         if (symbol == null) return "";
+        if (symbol is INamespaceSymbol ns) return "namespace:" + (normalize ? NormalizeNamespace(ns.ToDisplayString()) : ns.ToDisplayString());
         if (symbol is INamedTypeSymbol type)
         {
             var definition = type.OriginalDefinition;
@@ -76,9 +94,12 @@ class ReviewEquivalence
     }
     static bool SameBindings(SyntaxTree before, SyntaxTree after, CSharpCompilation left, CSharpCompilation right, Dictionary<INamedTypeSymbol, INamedTypeSymbol> renames)
     {
-        var oldNodes = before.GetRoot().DescendantNodes().OfType<SimpleNameSyntax>().ToArray();
-        var newNodes = after.GetRoot().DescendantNodes().OfType<SimpleNameSyntax>().ToArray();
-        if (oldNodes.Length != newNodes.Length || oldNodes.Any(n => n.Identifier.ValueText == "nameof" || n.Identifier.ValueText == "dynamic")
+        SyntaxNode[] Names(SyntaxTree tree) => tree.GetRoot().DescendantNodes().Where(node =>
+            node is NameSyntax && !(node.Parent is QualifiedNameSyntax) && !(node.Parent is AliasQualifiedNameSyntax) && !(node.Parent is MemberAccessExpressionSyntax)
+            || node is MemberAccessExpressionSyntax && !(node.Parent is MemberAccessExpressionSyntax)).ToArray();
+        var oldNodes = Names(before);
+        var newNodes = Names(after);
+        if (oldNodes.Length != newNodes.Length || before.GetRoot().DescendantNodes().OfType<IdentifierNameSyntax>().Any(n => n.Identifier.ValueText == "nameof" || n.Identifier.ValueText == "dynamic")
             || before.GetRoot().DescendantNodes().OfType<InvocationExpressionSyntax>().Any(n => n.Expression.ToString() == "nameof")) return false;
         var oldModel = left.GetSemanticModel(before); var newModel = right.GetSemanticModel(after); bool mapped = false;
         for (int i = 0; i < oldNodes.Length; i++)
@@ -87,10 +108,14 @@ class ReviewEquivalence
             if (a.CandidateSymbols.Length != 0 || b.CandidateSymbols.Length != 0) return false;
             if (Identity(a.Symbol, renames, true) != Identity(b.Symbol, renames, false)) return false;
             if (Identity(oldModel.GetTypeInfo(oldNodes[i]).Type, renames, true) != Identity(newModel.GetTypeInfo(newNodes[i]).Type, renames, false)) return false;
-            if (oldNodes[i].Identifier.ValueText != newNodes[i].Identifier.ValueText)
+            if (oldNodes[i].ToString() != newNodes[i].ToString())
             {
-                if (!(a.Symbol is INamedTypeSymbol oldType) || !(b.Symbol is INamedTypeSymbol newType)
-                    || !renames.TryGetValue(oldType.OriginalDefinition, out var expected) || !SymbolEqualityComparer.Default.Equals(expected, newType.OriginalDefinition)) return false;
+                bool renamedType = a.Symbol is INamedTypeSymbol oldType && b.Symbol is INamedTypeSymbol newType
+                    && renames.TryGetValue(oldType.OriginalDefinition, out var expected) && SymbolEqualityComparer.Default.Equals(expected, newType.OriginalDefinition);
+                bool relocated = a.Symbol != null && b.Symbol != null
+                    && NormalizeNamespace(oldNodes[i].ToString()) == newNodes[i].ToString()
+                    && Identity(a.Symbol, renames, true) != Identity(a.Symbol, renames, false);
+                if (!renamedType && !relocated) return false;
                 mapped = true;
             }
         }
@@ -104,14 +129,31 @@ class ReviewEquivalence
         var oldCompilation = Compile(before); var newCompilation = Compile(after);
         bool contextValid = !before.Any(Unsupported) && !after.Any(Unsupported) && !Errors(oldCompilation) && !Errors(newCompilation);
         var renames = new Dictionary<INamedTypeSymbol, INamedTypeSymbol>(SymbolEqualityComparer.Default);
-        if (contextValid) foreach (var pair in pairs)
+        namespacePairs = pairs.Where(pair => pair.kind == "namespace").ToArray();
+        if (contextValid)
         {
-            var ns = pair.ns; var prefix = string.IsNullOrEmpty(ns) ? "" : ns + ".";
-            var oldType = oldCompilation.GetTypeByMetadataName(prefix + pair.from);
-            var newType = newCompilation.GetTypeByMetadataName(prefix + pair.to);
-            if (oldType != null && newType != null && oldType.TypeKind == newType.TypeKind) renames[oldType] = newType;
+            foreach (var pair in pairs.Where(pair => pair.kind != "namespace"))
+            {
+                var ns = pair.ns; var prefix = string.IsNullOrEmpty(ns) ? "" : ns + ".";
+                var oldType = oldCompilation.GetTypeByMetadataName(prefix + pair.from);
+                var newType = newCompilation.GetTypeByMetadataName(prefix + pair.to);
+                if (oldType != null && newType != null && oldType.TypeKind == newType.TypeKind) renames[oldType] = newType;
+            }
+            foreach (var oldType in Types(oldCompilation.GlobalNamespace))
+            {
+                var name = MetadataName(oldType); var normalized = NormalizeNamespace(name);
+                if (normalized == name) continue;
+                var newType = newCompilation.GetTypeByMetadataName(normalized);
+                if (newType != null && oldType.TypeKind == newType.TypeKind) renames[oldType] = newType;
+            }
         }
 
+        bool bulkEquivalent = false;
+        if (contextValid && files.All(file => (file.formattingOnly || file.usingsOnly) && !file.renameOnly))
+        {
+            var leftBytes = Emit(oldCompilation); var rightBytes = Emit(newCompilation);
+            bulkEquivalent = leftBytes != null && rightBytes != null && leftBytes.SequenceEqual(rightBytes);
+        }
         for (int i = 0; i < files.Length; i++)
         {
             var file = files[i]; bool formatting = false, usings = false, rename = false; string reason = "Not a supported equivalence candidate";
@@ -120,7 +162,7 @@ class ReviewEquivalence
             {
                 if (candidate)
                 {
-                    bool identical = SameEmission(before[i], after[i]);
+                    bool identical = bulkEquivalent || SameEmission(before[i], after[i]);
                     formatting = identical && file.formattingOnly;
                     usings = identical && file.usingsOnly;
                     reason = identical ? "Roslyn verified identical emitted assembly content (excluding timestamp and module ID)" : "Changed emission or unresolved references; kept visible";

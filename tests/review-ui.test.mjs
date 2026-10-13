@@ -66,10 +66,10 @@ test('app theme, persistent ignores, rename navigation and safe dependency SVGs 
         assert.deepEqual(await page.locator('button.file').evaluateAll(nodes => nodes.map(node => node.dataset.path)), ['New.cs', 'package.json']);
         assert.equal(await page.locator('#current-file').textContent(), 'New.cs'); assert.equal(files.filter(file => file.viewed).length, 1);
         await page.locator('#dependencies').click(); await page.locator('#dependency-dialog').waitFor({ state: 'visible' });
-        assert.equal(await page.locator('#dependency-diagrams svg').count(), 1); assert.match(await page.locator('#dependency-stats').textContent(), /2 changed dependency declarations/);
+        assert.equal(await page.locator('#dependency-diagrams svg').count(), 2); assert.match(await page.locator('#dependency-stats').textContent(), /3 changed dependency declarations/);
         assert.match(await page.locator('#dependency-diagrams').textContent(), /1 → 2/); assert.match(await page.locator('#dependency-diagrams').textContent(), /<img src=x/);
         assert.equal(await page.locator('#dependency-diagrams img, #dependency-diagrams script').count(), 0);
-        await page.locator('.dependency-owner').click(); await page.locator('#current-file').filter({ hasText: 'package.json' }).waitFor();
+        await page.locator('.dependency-owner').filter({ hasText: 'package.json' }).click(); await page.locator('#current-file').filter({ hasText: 'package.json' }).waitFor();
         await page.locator('#dependency-file-summary').waitFor({ state: 'visible' });
         await page.locator('#review-filters').click(); await page.locator('#show-ignored').check(); await page.locator('#filters-form button[type=submit]').click();         await page.waitForFunction(() => document.querySelectorAll('button.file').length === 7);
                 assert.equal(await page.locator('button.file.ignored-file').count(), 5);

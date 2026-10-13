@@ -92,7 +92,7 @@ async function loadAnalysis() {
 function renderDependencies() {
     if (!analysis) return;
     const graph = analysis.dependencies;
-    $('dependency-stats').textContent = `${graph.changes} changed dependency declarations · ${graph.manifests} changed manifests${graph.warnings.length ? ` · ${graph.warnings.length} warnings` : ''}`;
+    $('dependency-stats').textContent = `${graph.changes} changed dependency declarations · ${graph.manifests} changed manifests · ${graph.sourceFiles || 0} C# files${graph.warnings.length ? ` · ${graph.warnings.length} warnings` : ''}`;
     renderDependencyDiagrams($('dependency-diagrams'), graph, $('dependency-context').checked, guard(async path => {
         const file = review.files.find(file => file.path === path || file.oldPath === path);
         if (file) { $('dependency-dialog').close(); await openFile(file); }
