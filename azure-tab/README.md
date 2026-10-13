@@ -42,7 +42,7 @@ Live read-only preflight on PR 2620 verified the immutable common base, current 
 
 ## PR 2620 performance
 
-A fresh live API snapshot and real headless Edge run measured **34.67 seconds to an interactive review**, including 3,673 API calls and 1,340 immutable files; no file reads failed. Full conservative analysis took **35.45 seconds total**. Subsequent file navigation measured 189 ms, and dependency inspection rendered 44 bounded diagrams. This measures the local built tab with live read-only Azure requests; it is not a deployed Marketplace/CDN performance result.
+A fresh 0.1.7 live API snapshot and real headless Edge run measured **40.49 seconds to an interactive review**, including 3,719 API calls and 1,340 immutable files; no file reads failed. Full conservative analysis took **41.31 seconds total**. Subsequent file navigation measured 176 ms, and dependency inspection rendered 44 bounded diagrams. Both original and destination EditorConfig ancestors are now included. This measures the local built tab with live read-only Azure requests; it is not a deployed Marketplace/CDN performance result.
 
 Azure's diff listed 247 original-path deletions alongside their rename destinations. Unique rename/deletion pairs now appear once as a rename, avoiding duplicate review and original compilation input. Ambiguous multiple destinations and unrelated deletions remain visible. The previous 1,587-file benchmark counted these duplicates.
 
@@ -62,7 +62,9 @@ The trusted shipped C# analyzer receives all PR text as base64-encoded data. Onl
 
 Assemblies, runtime, Comlink and Monaco workers are packaged locally. The organization's iframe/CSP must allow same-origin module workers and WASM. No SharedArrayBuffer or cross-origin isolation is required by the tested runtime. The desktop language-server executable is not used in the iframe.
 
-Marketplace version **0.1.6** is validated, and the existing organization's PR tab automatically points to its CDN without a reinstall. An actual Edge test against that CDN initialized the module worker and WASM and executed the shipped trusted analyzer on twelve fixtures. It verified formatting/using/reference-rename candidates, kept the rename declaration visible, and rejected a deliberately mislabeled behavior change and observable caller-information changes. Regression cases cover renamed-file `CallerFilePath`, `CallerLineNumber`, `CallerArgumentExpression`, constructor and attribute calls; unchanged caller information still permits a verified reference rename. This verifies deployed compiler execution, not complete project context or the Azure-hosted iframe's policies.
+Marketplace version **0.1.7** is validated, and PR 2620's existing installed tab automatically upgraded to its CDN after a normal reload, without a reinstall. An actual Edge test against its CDN confirmed that the deployed UI is byte-for-byte identical to the packaged production UI, includes the move/rename presentation and filter, initialized the module worker and WASM, and executed the shipped trusted analyzer on twelve fixtures. It verified formatting/using/reference-rename candidates, kept the rename declaration visible, and rejected a deliberately mislabeled behavior change and observable caller-information changes. Regression cases cover renamed-file `CallerFilePath`, `CallerLineNumber`, `CallerArgumentExpression`, constructor and attribute calls; unchanged caller information still permits a verified reference rename. This verifies deployed compiler execution, not complete project context or the Azure-hosted iframe's policies.
+
+The 0.1.7 VSIX contains 15,691,830 bytes; its SHA-256 is `cf6afb08bafbe4ed4113acac1c412f36ee22b4622e154f9c5bc8c1a7440babb4`.
 
 ## Conservative classification
 

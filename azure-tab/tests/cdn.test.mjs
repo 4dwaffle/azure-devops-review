@@ -1,6 +1,8 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {chromium} from 'playwright-core';
+import {readFile} from 'node:fs/promises';
+import {createHash} from 'node:crypto';
 
 const base=process.env.FILTERED_REVIEW_CDN_URL;
 test('Deployed CDN: module worker, WASM and trusted semantic equivalence analyzer', {skip:!base,timeout:90000},async()=>{
@@ -10,6 +12,14 @@ test('Deployed CDN: module worker, WASM and trusted semantic equivalence analyze
   const page=await browser.newPage();
   const errors=[];page.on('pageerror',error=>errors.push(String(error)));
   await page.goto(base+'/dist/equivalence.cs',{waitUntil:'domcontentloaded',timeout:30000});
+  const deployed=await page.evaluate(async()=>{
+   const response=await fetch('./app.js');if(!response.ok)throw new Error('Deployed UI unavailable');
+   const bytes=await response.arrayBuffer(),source=new TextDecoder().decode(bytes);
+   return {sha256:Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes)),byte=>byte.toString(16).padStart(2,'0')).join(''),moveLabel:source.includes('Moved + renamed'),filterLabel:source.includes('File moves and rename references')};
+  });
+  const bundled=await readFile(new URL('../dist/app.js',import.meta.url));
+  assert.equal(deployed.sha256,createHash('sha256').update(bundled).digest('hex'),'CDN must serve the exact packaged UI');
+  assert.equal(deployed.moveLabel,true);assert.equal(deployed.filterLabel,true);
   const result=await page.evaluate(async()=>{
    const module=await import('./roslyn/index.js');
    const runtime=await module.WasmSharpModule.initializeAsync();
