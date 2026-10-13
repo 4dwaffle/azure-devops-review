@@ -10,7 +10,8 @@ test('project-reference propagation requires an unambiguous moved project and un
     const classify = (value, projects=[project]) => detectRenames([...projects,value]).classifications.find(item => item.path===value.path)?.projectReferenceRenameOnly === true;
     assert.equal(classify(owner),true);
     assert.deepEqual(ignoredReasons(owner,normalizeFilters(),{projectReferenceRenameOnly:true}),['project-reference path rename propagation only']);
-    assert.deepEqual(ignoredReasons(owner,normalizeFilters({renames:false}),{projectReferenceRenameOnly:true}),[]);
+    assert.deepEqual(ignoredReasons(owner,normalizeFilters({renames:false}),{projectReferenceRenameOnly:true}),['project-reference path rename propagation only']);
+    assert.deepEqual(ignoredReasons(owner,normalizeFilters({projectReferenceRenames:false}),{projectReferenceRenameOnly:true}),[]);
     for (const changed of [after.replace('true','false'),after.replace('<Private>true','<Private>false'),after.replace('</Project>','<PackageReference Include="New"/></Project>'),after.replace('Mace.Data.csproj','Other.csproj'),after.replace('</Project>','<!-- changed --></Project>'),after.replace(' Include=', '  Include=')]) assert.equal(classify({...owner,modified:changed}),false,changed);
     for (const extra of [{modeChanged:true},{binary:true},{error:'Read failed'}]) assert.equal(classify({...owner,...extra}),false);
     assert.equal(classify(owner,[]),false);
@@ -22,6 +23,24 @@ test('project-reference propagation requires an unambiguous moved project and un
     const result = await analyzeReview({files:[project,owner]},async path=>[project,owner].find(file=>file.path===path),true);
     assert.equal(result.classifications.find(value=>value.path===owner.path).projectReferenceRenameOnly,true);
     assert.ok(result.dependencies.edges.length,'Dependency analysis remains available');
+});
+test('StationScreens project-reference renames hide independently of C# filters, including manifest-only analysis', async () => {
+    const project = file('AssemblyViews_A1/Mace.DAL.MaceDb/Mace.DAL.MaceDb.csproj', '<Project/>', '<Project/>', { oldPath: 'AssemblyViews_A1/Copeland.Mace.DAL.MaceDb/Copeland.Mace.DAL.MaceDb.csproj', status: 'R100', blobUnchanged: true });
+    const original = '<Project><ItemGroup><PackageReference Include="Existing" Version="1"/><ProjectReference Include="..\\Copeland.Mace.DAL.MaceDb\\Copeland.Mace.DAL.MaceDb.csproj"/></ItemGroup></Project>';
+    const owner = file('AssemblyViews_A1/Mace.StationScreens.Common/Mace.StationScreens.Common.csproj', original, original.replaceAll('Copeland.Mace.DAL.MaceDb', 'Mace.DAL.MaceDb'));
+    const mixed = { ...owner, path: 'AssemblyViews_A1/Mace.StationScreens.Common/Mixed.csproj', oldPath: 'AssemblyViews_A1/Mace.StationScreens.Common/Mixed.csproj', modified: owner.modified.replace('Version="1"', 'Version="2"') };
+    const files = [project, owner, mixed];
+    const filters = normalizeFilters({ renames: false, generated: false, designers: false, migrations: false });
+    assert.equal(filters.projectReferenceRenames, true, 'Older preferences enable the independent project filter');
+    for (const classify of [false, true]) {
+        const result = await analyzeReview({ files }, async path => files.find(value => value.path === path), classify);
+        const values = new Map(result.classifications.map(value => [value.path, value]));
+        assert.deepEqual(ignoredReasons(owner, filters, values.get(owner.path)), ['project-reference path rename propagation only']);
+        assert.deepEqual(ignoredReasons(mixed, filters, values.get(mixed.path)), [], 'Package changes remain visible');
+        assert.deepEqual(ignoredReasons(owner, normalizeFilters({ ...filters, projectReferenceRenames: false }), values.get(owner.path)), []);
+        assert.equal(result.classified, classify);
+        assert.ok(result.dependencies.edges.some(edge => edge.name === 'Existing' && edge.owner === mixed.path && edge.status === 'modified'));
+    }
 });
 test('moved namespace declarations with unchanged warning pragmas are text-only, never compiler rename proof', () => {
     const original = 'using Old.Data.ModelConfiguration;\n#pragma warning disable CS8618 // unchanged\nnamespace Old.Data.Entities;\nclass Entity { int x; }';

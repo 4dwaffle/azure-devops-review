@@ -2,12 +2,12 @@ import { posix } from 'node:path';
 import { XMLParser, XMLValidator } from 'fast-xml-parser';
 import { generatedClassifier } from './generated-code.mjs';
 const operators = ['>>>=', '>>=', '<<=', '??=', '=>', '??', '?.', '::', '->', '++', '--', '&&', '||', '==', '!=', '<=', '>=', '+=', '-=', '*=', '/=', '%=', '&=', '|=', '^=', '<<', '>>', '..'];
-export const defaultFilters = { resources: false, formatting: false, usings: false, renames: true, namespaceRenames: false, generated: true, designers: true, migrations: true, patterns: [], showIgnored: false };
+export const defaultFilters = { resources: false, formatting: false, usings: false, renames: true, projectReferenceRenames: true, namespaceRenames: false, generated: true, designers: true, migrations: true, patterns: [], showIgnored: false };
 export function normalizeFilters(value = {}) {
     if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid review filters');
     const patterns = value.patterns ?? [];
     if (!Array.isArray(patterns) || patterns.length > 50 || patterns.some(pattern => typeof pattern !== 'string' || !pattern.trim() || pattern.length > 200 || /[\r\n\0\\]/.test(pattern))) throw new Error('Provide up to 50 relative ignore globs, using / separators and at most 200 characters each');
-    return { resources: value.resources === true, formatting: value.formatting === true, usings: value.usings === true, renames: value.renames !== false, namespaceRenames: value.namespaceRenames === true, generated: value.generated !== false, designers: value.designers !== false, migrations: value.migrations !== false, patterns: [...new Set(patterns.map(pattern => pattern.trim()))], showIgnored: value.showIgnored === true };
+    return { resources: value.resources === true, formatting: value.formatting === true, usings: value.usings === true, renames: value.renames !== false, projectReferenceRenames: value.projectReferenceRenames !== false, namespaceRenames: value.namespaceRenames === true, generated: value.generated !== false, designers: value.designers !== false, migrations: value.migrations !== false, patterns: [...new Set(patterns.map(pattern => pattern.trim()))], showIgnored: value.showIgnored === true };
 }
 export function resourcePath(path) { return /\.(resx|resources|xlf|xliff|po|pot)$/i.test(path) || /(?:^|\/)[^/]*Resources(?:\.Designer)?\.cs$/i.test(path); }
 function tokens(text) {
@@ -94,7 +94,7 @@ export function ignoredReasons(file, filters, classification = {}) {
     if (!file.modeChanged && filters.formatting && classification.formattingOnly) reasons.push('formatting only');
     if (!file.modeChanged && filters.usings && classification.usingsOnly) reasons.push('using directives only');
     if (!file.modeChanged && filters.renames && classification.renameOnly) reasons.push(classification.fileRenameOnly ? 'file/path rename only' : 'detected type-rename references only');
-    if (!file.error && !file.binary && !file.modeChanged && filters.renames && classification.projectReferenceRenameOnly) reasons.push('project-reference path rename propagation only');
+    if (!file.error && !file.binary && !file.modeChanged && filters.projectReferenceRenames !== false && classification.projectReferenceRenameOnly) reasons.push('project-reference path rename propagation only');
     if (!file.error && !file.binary && !file.modeChanged && filters.namespaceRenames && classification.namespaceTextOnly) reasons.push('namespace rename propagation (text-only; not compiler-verified)');
     for (const pattern of filters.patterns || []) if (posix.matchesGlob(file.path, pattern)) { reasons.push(`pattern: ${pattern}`); break; }
     return reasons;
@@ -386,7 +386,8 @@ export async function analyzeReview(review, readFile, classify = false, configur
     sourceFiles.sort((a, b) => a.path.localeCompare(b.path));
     const renamed = detectRenames([...new Map([...sourceFiles, ...manifests].map(file => [file.path, file])).values()]);
     const renameClassification = new Map(renamed.classifications.map(value => [value.path, value]));
-    const classifiedFiles = new Map(classifications.map(value => [value.path, { ...value, ...renameClassification.get(value.path) }]));
+    const classifiedFiles = new Map(renamed.classifications.map(value => [value.path, value]));
+    for (const value of classifications) classifiedFiles.set(value.path, { ...value, ...renameClassification.get(value.path) });
     for (const file of review.files) if (/^R100$/.test(file.status) && file.blobUnchanged === true) classifiedFiles.set(file.path, { ...classifiedFiles.get(file.path), path: file.path, renameOnly: true, fileRenameOnly: true });
     if (classify) for (const file of review.files) classifiedFiles.set(file.path, { ...classifiedFiles.get(file.path), path: file.path, ...generated(file, contents.get(file.path)) });
     return { classified: classify, classifications: [...classifiedFiles.values()], renames: { pairs: renamed.pairs, ambiguous: renamed.ambiguous, semanticVerification: false }, dependencies: dependencyDelta([...manifests, ...sourceFiles]) };

@@ -2,6 +2,12 @@
 
 Private Azure DevOps extension adding a **Filtered Review** pull-request tab beside the native **Files** tab. This does not replace or modify Azure's built-in Files component.
 
+## Prepared update: 0.1.11 (not published)
+
+Project-reference path renames now have a separate, default-on filter. Older saved preferences enable it automatically, even when C# rename detection is disabled. Reference-only edits such as `Mace.StationScreens.Common.csproj` pointing to the renamed `Mace.DAL.MaceDb.csproj` are hidden after an unambiguous project-move check; package-version changes and other XML edits remain visible. The desktop canvas also retains these classifications during manifest-only analysis, without loading all C# sources.
+
+Shared-analysis and real Edge regressions cover the reported paths, old preferences, explicit opt-out, removing a newly ignored active file, and reload persistence. The installed Marketplace release below remains 0.1.10 until the new VSIX is submitted and deployment is verified.
+
 ## Published update: 0.1.10
 
 Local tests passed: root **61 passed / 1 skipped**, tab **29 passed / 1 skipped**, including native companion integration and three real Edge suites. Native extension reload and the diagnostics RPC succeeded. Marketplace verification completed on October 13, 2026; availability remains **Private (shared with 1)**. PR 2620's installed tab was reloaded and confirmed to use the **0.1.10** CDN iframe without a reinstall.
