@@ -4,11 +4,13 @@ import { existsSync } from 'node:fs';
 import { chromium } from 'playwright-core';
 import { startServer } from '../server.mjs';
 import { verifyEditorFind } from './editor-find.mjs';
+import { selectReviewLines } from './editor-comments.mjs';
 const executablePath = process.env.REVIEW_BROWSER || 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe';
 test('real Monaco worker, 70-file navigation, selection sides, drafts and zero implicit inference', { skip: !existsSync(executablePath), timeout: 90000 }, async () => {
     const files = Array.from({ length: 70 }, (_, index) => ({ path: `Folder${Math.floor(index / 10)}/File${index}.cs`, oldPath: `Folder${Math.floor(index / 10)}/File${index}.cs`, status: 'M', fingerprint: String(index), viewed: false }));
+    files[9].path = files[9].oldPath = 'Folder0/Nested/File9.cs';
     const pr = { organization: 'org', project: 'project', repositoryId: 'repo', id: 1, title: 'Browser fixture', repository: 'repository', createdBy: 'Reviewer', sourceRefName: 'refs/heads/source', targetRefName: 'refs/heads/main' };
-    const review = { key: 'org/repo/1', pr, iteration: { id: 2 }, base: 'a'.repeat(40), worktree: { path: 'local fixture' }, files, threads: [], drafts: [] };
+    const review = { key: 'org/repo/1', pr, iteration: { id: 2 }, source: 'b'.repeat(40), base: 'a'.repeat(40), worktree: { path: 'local fixture' }, files, threads: [], drafts: [] };
     let inference = 0, publications = 0, previews = 0, writeEnabled = false, failViewed = false; const copilotInputs = [];
     const configuration = () => ({ organization: 'org', roots: ['C:\\fixture'], writeEnabled, liveWriteVerification: false, roslyn: { available: false } });
     const service = {
@@ -16,8 +18,9 @@ test('real Monaco worker, 70-file navigation, selection sides, drafts and zero i
         configure: async input => { writeEnabled = input.writeEnabled; return configuration(); },
         list: async () => ({ pullRequests: [pr] }), open: async () => review,
         analysis: async () => ({ classifications: files.map(file => ({ path: file.path, reasons: [] })), renames: { pairs: [] }, dependencies: { nodes: [], edges: [], changes: 0, manifests: 0, warnings: [] } }),
-        file: async (_, path) => ({ ...files.find(file => file.path === path), original: 'class C { int x = 1; }\n', modified: 'class C { int x = 2; }\n', language: 'csharp', binary: false, threads: [{ id: 7, status: 'active', threadContext: { filePath: `/${path}`, rightFileStart: { line: 1, offset: 1 } }, comments: [{ author: { displayName: 'Existing reviewer' }, content: 'Existing inline comment' }] }] }),
+        file: async (_, path) => ({ ...files.find(file => file.path === path), original: 'class C {\n int x = 1;\n int y = 3;\n}\n', modified: 'class C {\n int x = 2;\n int y = 3;\n}\n', language: 'csharp', binary: false, threads: [{ id: 7, status: 'active', threadContext: { filePath: `/${path}`, rightFileStart: { line: 1, offset: 1 } }, comments: [{ author: { displayName: 'Existing reviewer' }, content: 'Existing inline comment' }] }] }),
         viewed: async ({ path, viewed }) => { if (failViewed) throw new Error('Progress write failed'); files.find(file => file.path === path).viewed = viewed; return { viewed }; },
+        viewedMany: async ({ paths, viewed, source, base }) => { assert.equal(source, review.source); assert.equal(base, review.base); if (failViewed) throw new Error('Progress write failed'); for (const path of paths) files.find(file => file.path === path).viewed = viewed; return { paths, viewed }; },
         draft: async input => { review.drafts.push({ ...input, id: 'draft-1', iteration: 2, status: 'draft' }); return { drafts: review.drafts }; },
         copilot: async input => { inference++; copilotInputs.push(input); return { queued: true }; },
         preparePublish: async () => { previews++; return { key: review.key, prId: pr.id, iteration: review.iteration.id, planToken: 'fixture-plan', payloads: review.drafts.map(draft => ({ draft, body: { threadContext: { filePath: `/${draft.path}` } } })), liveWriteVerification: false }; },
@@ -35,6 +38,19 @@ test('real Monaco worker, 70-file navigation, selection sides, drafts and zero i
         assert.equal(await page.locator('button.file').count(), 70); assert.equal(initial.modelCount, 2); assert.equal(initial.changedLines, 1); assert.ok(initial.workerCount > 0);
         await verifyEditorFind(page, '#diff');
         assert.equal(inference, 0, 'Editor Find never invokes Copilot');
+        for (const side of ['left', 'right']) {
+            for (const action of ['toolbar', 'shortcut', 'context-menu']) {
+                await selectReviewLines(page, '#diff', side);
+                if (action === 'toolbar') await page.click('#comment');
+                else if (action === 'shortcut') await page.keyboard.press('Control+m');
+                else { await page.keyboard.press('Shift+F10'); const item = page.getByRole('menuitem', { name: /Add review comment on selected lines/ }); await item.hover(); await page.waitForTimeout(150); await item.click(); }
+                await page.locator('#composer').waitFor({ state: 'visible', timeout: 5000 }).catch(async error => { throw new Error(`${side} ${action}: ${await page.locator('#notice').innerText()} · ${errors} · ${error.message}`); });
+                assert.match(await page.locator('#comment-location').textContent(), new RegExp(`${side} L1-2`));
+                await page.fill('#comment-content', `Multi-line ${side} ${action}`); await page.locator('#comment-form button[type=submit]').click(); await page.locator('#composer').waitFor({ state: 'hidden' });
+                const saved = review.drafts.pop(); assert.equal(saved.side, side); assert.equal(saved.startLine, 1); assert.equal(saved.endLine, 2); assert.equal(saved.startOffset, 0);
+            }
+        }
+        assert.equal(inference, 0, 'Selecting lines and drafting never invoke Copilot');
         const reviewed = page.getByRole('checkbox', { name: 'Reviewed Folder0/File0.cs', exact: true });
         assert.equal(await reviewed.isChecked(), false, 'Opening does not mark reviewed');
         await reviewed.check(); await page.waitForFunction(() => document.getElementById('progress').textContent === '1 / 70');
@@ -42,6 +58,18 @@ test('real Monaco worker, 70-file navigation, selection sides, drafts and zero i
         failViewed = true; await reviewed.click(); await page.locator('#notice').filter({ hasText: 'Progress write failed' }).waitFor();
         assert.equal(await reviewed.isChecked(), true); assert.equal(await page.locator('#viewed').isChecked(), true); failViewed = false;
         await reviewed.uncheck(); await page.waitForFunction(() => document.getElementById('progress').textContent === '0 / 70');
+        const folder = page.getByRole('checkbox', { name: 'Reviewed folder Folder0', exact: true });
+        const details = page.locator('details[data-folder="Folder0"]');
+        await reviewed.check(); await page.waitForFunction(() => document.getElementById('progress').textContent === '1 / 70');
+        assert.equal(await folder.evaluate(node => node.indeterminate), true);
+        await page.fill('#file-filter', 'File0.cs'); await folder.check(); await page.waitForFunction(() => document.getElementById('progress').textContent === '10 / 70');
+        assert.equal(files[9].viewed, true, 'Search-hidden nested descendant included');
+        await page.fill('#file-filter', ''); await details.locator(':scope > summary').click(); assert.equal(await details.evaluate(node => node.open), false);
+        failViewed = true; await folder.click(); await page.locator('#notice').filter({ hasText: 'Progress write failed' }).waitFor(); assert.equal(await folder.isChecked(), true); failViewed = false;
+        assert.equal(await details.evaluate(node => node.open), false, 'Failed checkbox write preserves collapse');
+        await page.reload(); await page.locator('.pr-card').click(); await page.waitForFunction(() => document.getElementById('progress').textContent === '10 / 70'); assert.equal(await folder.isChecked(), true);
+        await details.locator(':scope > summary').click(); await folder.uncheck(); await page.waitForFunction(() => document.getElementById('progress').textContent === '0 / 70'); assert.equal(await details.evaluate(node => node.open), false, 'Checkbox must not expand folder');
+        await details.locator(':scope > summary').click();
         await page.locator('#viewed').check(); await page.waitForFunction(() => document.getElementById('progress').textContent === '1 / 70');
         await page.locator('#code .editor.original .view-lines').click(); await page.locator('#comment').click();
         assert.match(await page.locator('#comment-location').textContent(), /left L\d+/);

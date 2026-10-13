@@ -42,7 +42,7 @@ test('batch progress rejects a review replaced while waiting for the persistence
     service.reviews.set(review.key, { ...review, source: 'new' }); release(); await pending;
     assert.equal(review.files[0].viewed, false);
 });
-test('folder selection, filtered batches, revealable ignored files, draft badges and dead-code markers are inference-free', { skip: !existsSync(executablePath), timeout: 90000 }, async () => {
+test('folder reviewed controls, ignored exclusion, draft badges and dead-code markers are inference-free', { skip: !existsSync(executablePath), timeout: 90000 }, async () => {
     const directory = await mkdtemp(join(tmpdir(), 'canvas-bulk-ui-'));
     const { service, review } = fixture(directory);
     const config = service.config.bind(service); service.config = async () => ({ ...await config(), roslyn: { available: true } });
@@ -70,18 +70,19 @@ test('folder selection, filtered batches, revealable ignored files, draft badges
         assert.equal(await page.locator('#review-pr-state').isHidden(), true);
         await page.locator('.pr-card').first().click(); await page.locator('#filter-status').filter({ hasText: 'Local analysis complete' }).waitFor();
         assert.equal(await page.locator('#review-pr-state').textContent(), 'Draft'); assert.equal(await page.locator('button.file').count(), 35);
-        const folder = page.locator('input[data-selection-folder="Folder0"]');
-        await folder.check(); assert.match(await page.locator('#selected-count').textContent(), /30 selected/);
-        await page.locator('input[data-selection-path="Folder0/Nested/File0.cs"]').uncheck(); assert.equal(await folder.evaluate(node => node.indeterminate), true);
-        await folder.check(); await page.locator('#mark-selected-reviewed').click(); await page.locator('#progress').filter({ hasText: '30 / 35 · 2 ignored' }).waitFor();
+        const folder = page.getByRole('checkbox', { name: 'Reviewed folder Folder0', exact: true });
+        await folder.check(); await page.locator('#progress').filter({ hasText: '30 / 35 · 2 ignored' }).waitFor();
         assert.equal(await page.locator('#viewed').isChecked(), true);
-        await page.locator('#mark-selected-unreviewed').click(); await page.locator('#progress').filter({ hasText: /^0 \/ 35 · 2 ignored/ }).waitFor();
+        await page.getByRole('checkbox', { name: 'Reviewed Folder0/Nested/File0.cs', exact: true }).uncheck();
+        await page.waitForFunction(() => document.querySelector('[data-reviewed-path="Folder0/"]').indeterminate);
+        await folder.check(); await page.locator('#progress').filter({ hasText: '30 / 35 · 2 ignored' }).waitFor();
+        await folder.uncheck(); await page.locator('#progress').filter({ hasText: /^0 \/ 35 · 2 ignored/ }).waitFor();
         assert.equal(await page.locator('#viewed').isChecked(), false);
-        await page.locator('#mark-selected-reviewed').click(); await page.locator('#progress').filter({ hasText: '30 / 35 · 2 ignored' }).waitFor();
-        await page.locator('#clear-selection').click(); await page.locator('#file-filter').fill('Folder1'); await page.locator('#select-visible').click();
-        assert.match(await page.locator('#selected-count').textContent(), /5 selected/);
+        await folder.check(); await page.locator('#progress').filter({ hasText: '30 / 35 · 2 ignored' }).waitFor();
+        await page.locator('#file-filter').fill('Folder1/File0.cs');
         assert.equal(await page.locator('#progress').textContent(), '30 / 35 · 2 ignored');
-        await page.locator('#mark-selected-reviewed').click(); await page.locator('#progress').filter({ hasText: '35 / 35 · 2 ignored' }).waitFor();
+        await page.getByRole('checkbox', { name: 'Reviewed folder Folder1', exact: true }).check();
+        await page.locator('#progress').filter({ hasText: '35 / 35 · 2 ignored' }).waitFor();
         assert.equal(review.files.find(file => file.path === 'Migrations/Update.cs').viewed, false);
         await page.reload(); await page.locator('.pr-card').first().click(); await page.locator('#filter-status').filter({ hasText: 'Local analysis complete' }).waitFor();
         assert.match(await page.locator('#progress').textContent(), /35 \/ 35 · 2 ignored/);
@@ -97,9 +98,11 @@ test('folder selection, filtered batches, revealable ignored files, draft badges
         assert.equal(await page.evaluate(() => monaco.editor.getModelMarkers({ owner: 'roslyn' }).length), 0);
         await page.locator('#review-filters').click(); await page.locator('#show-ignored').check(); await page.locator('#filters-form button[type=submit]').click();
         await page.waitForFunction(() => document.querySelectorAll('button.file').length === 37);
-        await page.locator('#select-visible').click(); await page.locator('#mark-selected-reviewed').click(); await page.locator('#notice').filter({ hasText: '37 files marked reviewed' }).waitFor();
-        assert.equal(await page.locator('#progress').textContent(), '35 / 35 · 2 ignored');
-        assert.equal(Object.keys((await service.store.read(`review:${review.key}`)).viewed).length, 37);
+        assert.equal(await page.getByRole('checkbox', { name: 'Reviewed folder Migrations', exact: true }).isDisabled(), true);
+        await folder.uncheck(); await page.locator('#progress').filter({ hasText: '5 / 35 · 2 ignored' }).waitFor();
+        await folder.check(); await page.locator('#progress').filter({ hasText: '35 / 35 · 2 ignored' }).waitFor();
+        assert.equal(Object.keys((await service.store.read(`review:${review.key}`)).viewed).length, 35);
+        assert.equal(review.files.find(file => file.path.endsWith('View.Designer.cs')).viewed, false);
         assert.deepEqual(errors, []); assert.deepEqual(unexpected, []);
     } finally { await browser.close(); await server.close(); await rm(directory, { recursive: true, force: true }); }
 });

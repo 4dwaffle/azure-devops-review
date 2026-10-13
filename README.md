@@ -23,7 +23,7 @@ Open **Azure DevOps Review**. In Settings, enter the organization slug and absol
 - Missing commits are reported. **Fetch refs** requires confirmation and downloads only the PR refs; no automatic clone, fetch, branch switch, or checkout is performed.
 - Mark files viewed directly with the **Reviewed** checkbox on the left of each file row. There is no file multiselect; opening a file does not mark it viewed. Progress survives closing the panel, extension reloads and app restarts. Failed saves restore the persisted checkbox state. A file is automatically unviewed when its blob identities, paths, or modes change. No supported public integration with Azure's built-in Files reviewed state was found; these stores remain independent.
 - Existing Azure threads and local drafts appear in the discussion panel. Historical or unverified coordinates are not decorated onto current code.
-- Select a range in either diff pane to draft an inline comment or ask Copilot for read-only analysis. Copilot scopes also include the entire current file or checked files from the tree (up to 20 source versions, 60 KB combined). Drafting remains local. Ask Copilot is the only interaction that invokes agent inference; normal file navigation and progress updates do not.
+- Select a range in either diff pane to draft an inline comment or ask Copilot for read-only analysis. Copilot also supports the entire current file. Reviewed checkboxes track progress, not Copilot file selections. Drafting remains local. Ask Copilot is the only interaction that invokes agent inference; normal file navigation and progress updates do not.
 
 Two Monaco models are kept alive, disposing the previous pair on navigation. Saved file view states are bounded to 100. Binary and >8 MB files are not rendered but can be marked viewed; Gitlinks show their subproject commit SHA. Fork PRs and ambiguous multiple merge bases are not supported for local comparison.
 
@@ -35,7 +35,7 @@ The PR dropdown offers **Active**, **My drafts**, **I'm a reviewer (active)**, *
 
 The editor, gutters, minimap and widgets follow the app's semantic theme tokens, including live light/dark changes. There is no separate editor backdrop or whole-line added/deleted fill; inline diff text highlighting remains available.
 
-**Review progress:** click the left-side Reviewed checkbox to mark or unmark a file independently of navigation. Search and Show ignored do not change reviewable totals; ignored files retain their progress. Normal navigation/progress actions do not invoke inference or write to Azure. Copilot remains available for the current file or selected code range. Only draft PRs display a Draft badge.
+**Review progress:** click the left-side Reviewed checkbox to mark or unmark a file independently of navigation. Folder checkboxes mark or unmark every non-ignored descendant, including collapsed and search-hidden files. A mixed checkbox means only some descendants are reviewed. Ignored files remain untouched even when shown; folders with missing file fingerprints cannot be marked. Folder updates are saved atomically and failed writes restore the persisted state without expanding the folder. Search and Show ignored do not change reviewable totals; ignored files retain their progress. Normal navigation/progress actions do not invoke inference or write to Azure. Copilot remains available for the current file or selected code range. Only draft PRs display a Draft badge.
 
 **Designer files** (`*.Designer.*`) and files under **Migrations** directory segments (including migration designers and model snapshots) are independently ignored by default, case-insensitively. These path-based preferences apply immediately without Roslyn or generated-code analysis, even when `.editorconfig` marks a designer file handwritten. Disable either option in **Review filters**, or use **Show ignored files** to inspect hidden changes. File-mode changes and renames crossing either category remain visible. Custom migration folder names can use additional ignore globs.
 
@@ -62,7 +62,7 @@ These graphs describe **manifest declarations and explicit imports in changed so
 | Alt+Up / Alt+Down | Previous / next filtered file |
 | F8 / Shift+F8 | Next / previous diff hunk |
 | V (outside text inputs/editors) | Toggle file viewed |
-| Ctrl/Cmd+M (modified editor) | Draft comment on selection |
+| Ctrl/Cmd+M (either editor pane) | Draft comment on the selected code lines; also available via Add comment or the editor context menu |
 
 ## Publishing status and correctness
 

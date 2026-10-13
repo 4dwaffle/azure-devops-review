@@ -1,5 +1,6 @@
 import * as monaco from 'monaco-editor/esm/vs/editor/editor.api.js';
 import 'monaco-editor/esm/vs/editor/contrib/find/browser/findController.js';
+import 'monaco-editor/esm/vs/editor/contrib/contextmenu/browser/contextmenu.js';
 import 'monaco-editor/esm/vs/basic-languages/csharp/csharp.contribution.js';
 import 'monaco-editor/esm/vs/basic-languages/xml/xml.contribution.js';
 import {defaultFilters,normalizeFilters,ignoredReasons} from '../../analysis.mjs';
@@ -76,6 +77,8 @@ export async function start(connection,loadReview){
   function append(nodes){for(const node of nodes){
    if(node.kind==='folder'){
     const expanded=!!$('search').value||!collapsed.has(node.path),heading=document.createElement('div');heading.className='folder-heading';heading.style.setProperty('--depth',node.depth);heading.dataset.path=node.path;
+    const descendants=review.files.filter(file=>file.path.startsWith(`${node.path}/`)&&!reasons(file).length),reviewedCount=descendants.filter(file=>progress.viewed(file)).length;
+    const reviewed=document.createElement('input');reviewed.type='checkbox';reviewed.className='reviewed-checkbox folder-reviewed';reviewed.dataset.focus=`folder-reviewed:${node.path}`;reviewed.checked=descendants.length>0&&reviewedCount===descendants.length;reviewed.indeterminate=reviewedCount>0&&reviewedCount<descendants.length;reviewed.disabled=!descendants.length||descendants.some(file=>!file.fingerprint);reviewed.setAttribute('aria-label',`Reviewed folder ${node.path}`);reviewed.title='Mark all non-ignored files in this folder reviewed, including collapsed and search-hidden files';reviewed.onchange=safe(()=>{try{progress.mark(descendants,reviewed.checked);}finally{render();}});heading.append(reviewed);
     const toggle=document.createElement('button');toggle.className='folder-toggle';toggle.dataset.focus=`folder-toggle:${node.path}`;toggle.setAttribute('aria-expanded',String(expanded));toggle.setAttribute('aria-label',`${expanded?'Collapse':'Expand'} folder ${node.path}`);toggle.title=node.path;toggle.onclick=()=>{expanded?collapsed.add(node.path):collapsed.delete(node.path);render();};const chevron=icon('chevron');chevron.classList.add('chevron');const folder=icon(expanded?'folderOpen':'folder');folder.classList.add('folder-icon');const name=document.createElement('span');name.className='folder-name';name.textContent=node.name;const count=document.createElement('span');count.className='folder-count';count.textContent=node.files.length;toggle.append(chevron,folder,name,count);heading.append(toggle);rows.append(heading);if(expanded)append(node.children);
    }else{
     const file=node.file,row=document.createElement('div');row.className=`file-row${file.path===active?.path?' active':''}${reasons(file).length?' ignored':''}`;row.style.setProperty('--depth',node.depth);row.dataset.path=file.path;
@@ -99,8 +102,9 @@ export async function start(connection,loadReview){
   models=[monaco.editor.createModel(before,language),monaco.editor.createModel(after,language)];editor.setModel({original:models[0],modified:models[1]});
   $('add-comment').disabled=!!draftError||!review.latestIteration||!file.fingerprint||!!file.error||file.binary;
   for(const [side,pane] of [['left',editor.getOriginalEditor()],['right',editor.getModifiedEditor()]]){
-   paneActions.push(pane.onDidFocusEditorText(()=>lastSide=side));
-   paneActions.push(pane.addAction({id:'azure-review-comment',label:'Add review comment',contextMenuGroupId:'navigation',contextMenuOrder:1.5,run:safe(()=>compose(side))}));
+   paneActions.push(pane.onDidFocusEditorWidget(()=>lastSide=side));
+   paneActions.push(pane.onMouseDown(()=>lastSide=side));
+   paneActions.push(pane.addAction({id:`azure-review-comment-${side}`,label:'Add review comment on selected lines',contextMenuGroupId:'navigation',contextMenuOrder:1.5,keybindings:[monaco.KeyMod.CtrlCmd|monaco.KeyCode.KeyM],run:safe(()=>compose(side))}));
   }
   const navigateDiff=direction=>{const lines=(editor.getLineChanges()||[]).map(change=>Math.max(1,change.modifiedStartLineNumber));const modified=editor.getModifiedEditor(),line=modified.getPosition()?.lineNumber||0;const next=direction>0?lines.find(value=>value>line)??lines[0]:lines.toReversed().find(value=>value<line)??lines.at(-1);if(next){modified.setPosition({lineNumber:next,column:1});modified.revealLineInCenter(next);}};$('previous-diff').onclick=()=>navigateDiff(-1);$('next-diff').onclick=()=>navigateDiff(1);
   $('threads').replaceChildren();
