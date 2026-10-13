@@ -1,12 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, writeFile, mkdir, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { generatedFilename, generatedHeader, generatedClassifier } from '../generated-code.mjs';
 import { analyzeReview, normalizeFilters, ignoredReasons } from '../analysis.mjs';
-import { GitReview } from '../git-review.mjs';
-import { git } from '../process.mjs';
 const file = (path, original = '', modified = '', status = 'M') => ({ path, oldPath: path, original, modified, status });
 const config = (path, contents) => ({ path, contents });
 
@@ -51,23 +46,4 @@ test('generated changes are default-on and revealable, preserve transitions/mode
     const ignoredManifest = await analyzeReview({ files }, async path => files.find(file => file.path === path), true, manifestConfigs);
     assert.equal(ignoredManifest.classifications.find(value => value.path === 'package.json').generated, true);
     assert.equal(ignoredManifest.dependencies.changes, 1);
-});
-test('configuration reads include unchanged immutable blobs, never working files or target-only overrides', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'review-generated-git-'));
-    try {
-        await git(root, ['init', '-q', '-b', 'main']); await git(root, ['config', 'user.name', 'Canvas Test']); await git(root, ['config', 'user.email', 'test@example.invalid']);
-        await mkdir(join(root, 'Nested')); await writeFile(join(root, '.editorconfig'), 'root=true\n[*.g.cs]\ngenerated_code=false'); await writeFile(join(root, 'Nested', 'Gen.g.cs'), 'class C {}');
-        await git(root, ['add', '.']); await git(root, ['commit', '-qm', 'base']);
-        await git(root, ['checkout', '-qb', 'source']); await writeFile(join(root, 'Nested', 'Gen.g.cs'), 'class C { int x; }'); await git(root, ['add', '.']); await git(root, ['commit', '-qm', 'source']); const source = (await git(root, ['rev-parse', 'HEAD'])).trim();
-        await git(root, ['checkout', '-q', 'main']); await writeFile(join(root, '.editorconfig'), 'root=true\n[*.g.cs]\ngenerated_code=true'); await git(root, ['add', '.']); await git(root, ['commit', '-qm', 'target']); const target = (await git(root, ['rev-parse', 'HEAD'])).trim();
-        await writeFile(join(root, '.editorconfig'), 'root=true\n[*.g.cs]\ngenerated_code=true');
-        const client = new GitReview([root]), review = { ...await client.compare({ path: root }, source, target), worktree: { path: root } };
-        assert.equal(review.files.length, 1);
-        const configurations = await client.generatedConfigs(review);
-        assert.equal(configurations.base[0].contents, configurations.source[0].contents); assert.match(configurations.source[0].contents, /false/);
-        const analysis = await analyzeReview(review, path => client.file(review, path), true, configurations);
-        assert.equal(analysis.classifications[0].generated, false);
-        const oversized = { ...review, configurationPaths: { base: Array.from({ length: 201 }, () => ({ path: '.editorconfig' })), source: [] } };
-        assert.match((await client.generatedConfigs(oversized)).base[0].error, /Too many/);
-    } finally { await rm(root, { recursive: true, force: true }); }
 });

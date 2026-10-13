@@ -27,7 +27,7 @@ Private Azure DevOps extension adding a **Filtered Review** pull-request tab bes
 
 ## Published update: 0.1.11
 
-Project-reference path renames now have a separate, default-on filter. Older saved preferences enable it automatically, even when C# rename detection is disabled. Reference-only edits such as `Mace.StationScreens.Common.csproj` pointing to the renamed `Mace.DAL.MaceDb.csproj` are hidden after an unambiguous project-move check; package-version changes and other XML edits remain visible. The desktop canvas also retains these classifications during manifest-only analysis, without loading all C# sources.
+Project-reference path renames now have a separate, default-on filter. Older saved preferences enable it automatically, even when C# rename detection is disabled. Reference-only edits such as `Mace.StationScreens.Common.csproj` pointing to the renamed `Mace.DAL.MaceDb.csproj` are hidden after an unambiguous project-move check; package-version changes and other XML edits remain visible.
 
 Shared-analysis and real Edge regressions cover the reported paths, old preferences, explicit opt-out, removing a newly ignored active file, and reload persistence. Marketplace validation completed on October 13, 2026, with availability still **Private (shared with 1)**. Reloading PR 2620 confirmed its installed tab uses the **0.1.11** CDN iframe. The deployed Edge CDN suite passed; deployed `index.html`, `app.js`, and `analysis-worker.js` match the local production bytes exactly. A separate deployed-worker check recognizes the reported StationScreens.Common reference-only rename.
 
@@ -38,7 +38,7 @@ Shared-analysis and real Edge regressions cover the reported paths, old preferen
 
 ## Published update: 0.1.10
 
-Local tests passed: root **61 passed / 1 skipped**, tab **29 passed / 1 skipped**, including native companion integration and three real Edge suites. Native extension reload and the diagnostics RPC succeeded. Marketplace verification completed on October 13, 2026; availability remains **Private (shared with 1)**. PR 2620's installed tab was reloaded and confirmed to use the **0.1.10** CDN iframe without a reinstall.
+Local tests passed: root **61 passed / 1 skipped**, tab **29 passed / 1 skipped**, including native companion integration and three real Edge suites. Marketplace verification completed on October 13, 2026; availability remains **Private (shared with 1)**. PR 2620's installed tab was reloaded and confirmed to use the **0.1.10** CDN iframe without a reinstall.
 
 The deployed Edge CDN test passed: the UI matches the packaged production bytes, the analysis worker initializes, WASM/Roslyn runs the shipped trusted analyzer, and namespace/move/caller-information regressions pass. Separate byte comparisons confirmed that deployed `index.html`, `app.js`, and `analysis-worker.js` exactly match the local package, including the companion integration. This verifies release deployment, not a complete compiler profile or native companion verification for PR 2620.
 
@@ -49,15 +49,16 @@ The deployed Edge CDN test passed: the UI matches the packaged production bytes,
 
 ## Build and install
 
-Requires Node.js 22+.
+Requires Node.js 22+. From the repository root, install the shared analysis dependencies as well as the tab's dependencies:
 
 ```powershell
 npm ci
+npm ci --prefix azure-tab
 npm test
 npm run package
 ```
 
-The package appears under `artifacts`. `build.mjs` generates `vss-extension.package.json` from the source manifest, enumerating JavaScript (including transitive `.mjs`), WASM and binary assets with explicit MIME types; do not edit the generated manifest. License texts for bundled npm packages and shipped .NET/Roslyn/Humanizer assemblies are retained under `dist/licenses`. The manifest uses the Marketplace publisher `VaclavBerny`. For another publisher, change the ID in `vss-extension.json`, then rebuild. Keep `public: false`; upload the VSIX privately to that publisher, share it with your organization, and install it through Organization settings → Extensions. No upload, sharing or organization installation is performed by these scripts. The requested Azure scope is `vso.code_write` for explicit comment publication. Upgrading an existing installation may require organization permission approval. PR browsing itself remains read-only.
+The package appears under `azure-tab/artifacts`. `build.mjs` generates `vss-extension.package.json` from the source manifest, enumerating JavaScript (including transitive `.mjs`), WASM and binary assets with explicit MIME types; do not edit the generated manifest. License texts for bundled npm packages and shipped .NET/Roslyn/Humanizer assemblies are retained under `dist/licenses`. The manifest uses the Marketplace publisher `VaclavBerny`. For another publisher, change the ID in `vss-extension.json`, then rebuild. Keep `public: false`; upload the VSIX privately to that publisher, share it with your organization, and install it through Organization settings → Extensions. No upload, sharing or organization installation is performed by these scripts. The requested Azure scope is `vso.code_write` for explicit comment publication. Upgrading an existing installation may require organization permission approval. PR browsing itself remains read-only.
 
 Current PR discovery first checks SDK configuration, then the documented host navigation route's `pullRequestId`. If that host does not expose the ID, an explicit PR-ID form is shown. The private extension is installed in `Copeland-MikAssembly`. Version 0.1.1 fixes commit descriptors that previously omitted source/target versions from the SDK's serialized diff request, producing an empty default-commit comparison. Live read-only API checks on PR 2619 confirm that explicit immutable commit versions return changes. Host PR-context shape and organization iframe/CSP behavior still require live UI verification. A successful mocked browser test or VSIX build is not proof of live Azure UI behavior.
 
@@ -70,7 +71,7 @@ Current PR discovery first checks SDK configuration, then the documented host na
 - Renames, directory moves and combined moves/renames are labeled separately, with the original → destination path shown above the diff and in row tooltips. Search matches either path. Azure's separate addition/deletion rows are paired only when exactly one of each has the same immutable regular-file blob ID and the old path actually disappears. Duplicate-content ambiguity, missing metadata, copies and changed-content addition/deletion pairs remain separate. Explicit Azure renames retain their content edits; mode changes stay visible. Original and destination EditorConfig ancestors are both loaded. This is exact path-change detection, not proof that relocation preserves runtime or build behavior.
 - Files and folders have left-side **Reviewed** checkboxes for immediate durable progress. A folder checkbox applies atomically to every non-ignored descendant, including collapsed and search-hidden files; mixed state means some descendants are reviewed. Ignored files remain untouched even when shown, and folders with missing file fingerprints cannot be marked. Failed storage writes restore the persisted state without expanding the folder, and the toolbar stays synchronized. These are progress controls, not file multiselect; merely opening a file does not mark it reviewed.
 - Counts are `reviewed non-ignored / non-ignored · ignored`. Search also does not change these totals. Each left-side checkbox saves that file’s reviewed state immediately.
-- Browser-local progress is scoped to organization, user, repository and PR. Contents, rename paths and Git modes invalidate reviewed fingerprints; unrelated PR updates do not erase unchanged files. Clearing site storage removes progress. This is not synchronized with Azure's native viewed state or the Copilot canvas's local progress.
+- Browser-local progress is scoped to organization, user, repository and PR. Contents, rename paths and Git modes invalidate reviewed fingerprints; unrelated PR updates do not erase unchanged files. Clearing site storage removes progress. This is not synchronized with Azure's native viewed state.
 - **Dependencies** displays manifest declarations and explicit C# using directives independently of ignore filters, with owner-file navigation and an option to show unchanged connections. C# import edges are syntax-only, not resolved symbol dependencies. Unsupported source syntax is reported explicitly. Diagrams are bounded to 200 connections and 20 displayed warnings; complete immutable diffs remain available. This is not a full call graph or transitive dependency graph.
 - Existing file and general review comments are displayed as plain text. Azure system activity (such as branch updates) is hidden; human replies in mixed threads remain visible. Iteration context is available on hover rather than repeated headings. Current-iteration line links navigate the immutable diff; historical or out-of-range positions cannot navigate.
 - The embedded tab does not duplicate Azure’s PR title or state badges.
@@ -136,9 +137,9 @@ Marketplace version **0.1.9** is validated with all 215 declared assets. Its dep
 
 ## Conservative classification
 
-Generated filename/header conventions are recognized. Relevant ancestor `.editorconfig` and root `.globalconfig` files are fetched from both immutable commits. If any explicit `generated_code` setting or uncertain configuration read is encountered, generated candidates stay visible with a warning rather than attempting incomplete EditorConfig semantics. This is more conservative than the desktop canvas's complete EditorConfig support. Designer/migration filters remain separately user-controlled.
+Generated filename/header conventions are recognized. Relevant ancestor `.editorconfig` and root `.globalconfig` files are fetched from both immutable commits. If any explicit `generated_code` setting or uncertain configuration read is encountered, generated candidates stay visible with a warning rather than attempting incomplete EditorConfig semantics. Designer/migration filters remain separately user-controlled.
 
-This browser-only extension has no local Git/worktree access, Copilot CLI bridge, automatic inference or remote progress synchronization. Those remain in the existing local canvas. Ordinary file navigation, filtering, progress and dependency diagrams require no agent inference.
+This browser-only extension has no local Git/worktree access, Copilot CLI bridge, automatic inference or remote progress synchronization. Ordinary file navigation, filtering, progress and dependency diagrams require no agent inference.
 
 ## Validation and third-party components
 

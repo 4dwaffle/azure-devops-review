@@ -1,6 +1,6 @@
 # Experimental local compiler companion
 
-The optional companion verifies repeated C# reference renames using **explicitly trusted, complete before/after compiler profiles**, including unchanged sources and project-specific metadata references. It supplements the **Filtered Review Azure tab**, not the desktop canvas or a Roslyn language server. Browser verification remains the default. No inference is involved.
+The optional companion verifies repeated C# reference renames using **explicitly trusted, complete before/after compiler profiles**, including unchanged sources and project-specific metadata references. It supplements the **Filtered Review Azure tab**, not a Roslyn language server. Browser verification remains the default. No inference is involved.
 
 ## Start and connect
 
