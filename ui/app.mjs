@@ -5,7 +5,7 @@ import { pathChange } from './path-changes.mjs';
 const $ = id => document.getElementById(id);
 let config, prs = [], review, current, diff, models = [], navigation = 0, reviewNavigation = 0, controller, selection;
 let monacoLoaded = false, workerVerified = false, workerError = '', activeSide = 'right';
-const modelStates = new Map(), selectedFiles = new Set();
+const modelStates = new Map(), selectedFiles = new Set(), viewing = new Set();
 let analysis, analysisSequence = 0, classifications = new Map();
 let workerCount = 0, prListSequence = 0, bulkViewing = false;
 window.MonacoEnvironment = { getWorker: (_, label) => {
@@ -161,7 +161,7 @@ $('mark-selected-reviewed').onclick = guard(() => markSelected(true));
 $('mark-selected-unreviewed').onclick = guard(() => markSelected(false));
 function renderFiles() {
     if (!review) return;
-    const root = $('file-tree'); root.replaceChildren();
+    const root = $('file-tree'), focused = document.activeElement?.dataset.reviewedPath, scroll = root.scrollTop; root.replaceChildren();
     const directories = new Map([['', root]]);
     const shown = visibleFiles(), ignored = review.files.filter(file => ignoreReasons(file).length).length;
     if (!config?.reviewFilters?.showIgnored) for (const path of selectedFiles) if (ignoreReasons({ path }).length) selectedFiles.delete(path);
@@ -181,18 +181,28 @@ function renderFiles() {
         const reasons = ignoreReasons(file);
         const button = element('button', null, `file${current?.path === file.path ? ' active' : ''}${reasons.length ? ' ignored-file' : ''}`); button.title = `${pathChange(file)?.paths || file.path}${reasons.length ? ` · ignored: ${reasons.join(', ')}` : ''}`;
         button.dataset.path = file.path;
-        append(button, element('span', file.viewed ? '✓' : '○', 'file-viewed'), element('span', parts.at(-1), 'file-name'), element('span', pathChange(file)?.label || file.status[0], 'file-status'));
+        append(button, element('span', parts.at(-1), 'file-name'), element('span', pathChange(file)?.label || file.status[0], 'file-status'));
         button.onclick = guard(() => openFile(file));
         const checkbox = element('input'); checkbox.type = 'checkbox'; checkbox.checked = selectedFiles.has(file.path);
         checkbox.setAttribute('aria-label', `Select ${file.path} for review or Copilot`); checkbox.dataset.selectionPath = file.path;
         checkbox.onchange = () => { if (checkbox.checked) selectedFiles.add(file.path); else selectedFiles.delete(file.path); renderSelection(); };
-        parent.append(append(element('div', null, 'file-row'), checkbox, button));
+        const reviewed = element('input'); reviewed.type = 'checkbox'; reviewed.checked = file.viewed === true; reviewed.dataset.reviewedPath = file.path;
+        reviewed.disabled = viewing.has(file.path); reviewed.setAttribute('aria-label', `Reviewed ${file.path}`); reviewed.title = 'Mark this file reviewed (saved locally; separate from selection)';
+        reviewed.onchange = guard(() => markFileViewed(file.path, reviewed.checked));
+        parent.append(append(element('div', null, 'file-row'), checkbox, button, reviewed));
     }
     const reviewable = review.files.filter(file => !ignoreReasons(file).length);
     $('progress').textContent = `${reviewable.filter(file => file.viewed).length} / ${reviewable.length}${ignored ? ` · ${ignored} ignored` : ''}`;
     $('review-filters').textContent = `Review filters${ignored ? ` (${ignored} ignored)` : ''}`;
     if (!shown.length) root.append(element('p', ignored ? 'No visible files match. Change filters or show ignored files.' : 'No changed files match.', 'empty'));
     $('ignored-file-status').textContent = current && ignoreReasons(current).length ? `Ignored: ${ignoreReasons(current).join(', ')}. Shown explicitly; not marked viewed.` : '';
+    const candidates = review.files.filter(file => classifications.get(file.path)?.namespaceTextOnly && !file.error && !file.binary && !file.modeChanged).length;
+    $('namespace-hint').hidden = config?.reviewFilters?.namespaceRenames === true || !candidates;
+    $('namespace-hint-text').textContent = `${candidates} namespace-only candidates; text-only filtering is off (not compiler proof).`;
+    $('viewed').checked = current ? review.files.find(file => file.path === current.path)?.viewed === true : false;
+    if (current) $('viewed').disabled = viewing.has(current.path);
+    root.scrollTop = scroll;
+    if (focused) [...root.querySelectorAll('[data-reviewed-path]')].find(node => node.dataset.reviewedPath === focused)?.focus({ preventScroll: true });
     renderDependencySummary(); renderSelection();
 }
 function setEnabled(value) { for (const id of ['viewed', 'comment', 'copilot', 'previous-file', 'next-file', 'previous-diff', 'next-diff']) $(id).disabled = !value; $('roslyn').disabled = !value || current?.language !== 'csharp' || !config?.roslyn.available; }
@@ -273,7 +283,21 @@ function selectedRange() {
 }
 function showComment() { try { selection = selectedRange(); $('comment-location').textContent = `${selection.path} · ${selection.side} L${selection.startLine}-${selection.endLine}`; $('comment-content').value = ''; $('composer').showModal(); $('comment-content').focus(); } catch (error) { notice(error.message, true); } }
 function navigateFile(direction) { if (!review || !current) return; const files = visibleFiles(); const index = files.findIndex(file => file.path === current.path); const file = files[index + direction]; if (file) return openFile(file); }
-async function markViewed() { if (!current) return; const key = review.key, path = current.path, viewed = $('viewed').checked; await api('viewed', { key, path, viewed }); if (key !== review?.key) return; review.files.find(file => file.path === path).viewed = viewed; if (current?.path === path) current.viewed = viewed; renderFiles(); }
+async function markFileViewed(path, viewed) {
+    const captured = review;
+    if (!captured || viewing.has(path)) return;
+    viewing.add(path);
+    for (const checkbox of $('file-tree').querySelectorAll('[data-reviewed-path]')) if (checkbox.dataset.reviewedPath === path) checkbox.disabled = true;
+    if (current?.path === path) $('viewed').disabled = true;
+    try {
+        const result = await api('viewed', { key: captured.key, path, viewed });
+        if (review !== captured) return;
+        captured.files.find(file => file.path === path).viewed = result.viewed;
+        if (current?.path === path) current.viewed = result.viewed;
+    } finally { viewing.delete(path); if (review === captured) renderFiles(); }
+}
+async function markViewed() { if (current) await markFileViewed(current.path, $('viewed').checked); }
+$('namespace-hint-action').onclick = () => $('review-filters').click();
 $('settings-button').onclick = () => { $('organization').value = config?.organization || ''; $('roots').value = (config?.roots || []).join('\n'); $('write-enabled').checked = config?.writeEnabled; $('write-enabled').disabled = false; $('settings').showModal(); };
 $('close-settings').onclick = () => $('settings').close();
 $('config-form').onsubmit = guard(async event => { event.preventDefault(); config = await api('config', { organization: $('organization').value.trim(), roots: $('roots').value.split('\n').map(path => path.trim()).filter(Boolean), writeEnabled: $('write-enabled').checked }); $('connection').textContent = config.organization; $('settings').close(); if (review) renderDiscussion(); await loadPrs(); });

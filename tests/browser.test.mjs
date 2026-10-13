@@ -8,7 +8,7 @@ test('real Monaco worker, 70-file navigation, selection sides, drafts and zero i
     const files = Array.from({ length: 70 }, (_, index) => ({ path: `Folder${Math.floor(index / 10)}/File${index}.cs`, oldPath: `Folder${Math.floor(index / 10)}/File${index}.cs`, status: 'M', fingerprint: String(index), viewed: false }));
     const pr = { organization: 'org', project: 'project', repositoryId: 'repo', id: 1, title: 'Browser fixture', repository: 'repository', createdBy: 'Reviewer', sourceRefName: 'refs/heads/source', targetRefName: 'refs/heads/main' };
     const review = { key: 'org/repo/1', pr, iteration: { id: 2 }, base: 'a'.repeat(40), worktree: { path: 'local fixture' }, files, threads: [], drafts: [] };
-    let inference = 0, publications = 0, previews = 0, writeEnabled = false; const copilotInputs = [];
+    let inference = 0, publications = 0, previews = 0, writeEnabled = false, failViewed = false; const copilotInputs = [];
     const configuration = () => ({ organization: 'org', roots: ['C:\\fixture'], writeEnabled, liveWriteVerification: false, roslyn: { available: false } });
     const service = {
         config: async () => configuration(),
@@ -16,7 +16,7 @@ test('real Monaco worker, 70-file navigation, selection sides, drafts and zero i
         list: async () => ({ pullRequests: [pr] }), open: async () => review,
         analysis: async () => ({ classifications: files.map(file => ({ path: file.path, reasons: [] })), renames: { pairs: [] }, dependencies: { nodes: [], edges: [], changes: 0, manifests: 0, warnings: [] } }),
         file: async (_, path) => ({ ...files.find(file => file.path === path), original: 'class C { int x = 1; }\n', modified: 'class C { int x = 2; }\n', language: 'csharp', binary: false, threads: [{ id: 7, status: 'active', threadContext: { filePath: `/${path}`, rightFileStart: { line: 1, offset: 1 } }, comments: [{ author: { displayName: 'Existing reviewer' }, content: 'Existing inline comment' }] }] }),
-        viewed: async ({ path, viewed }) => { files.find(file => file.path === path).viewed = viewed; return { viewed }; },
+        viewed: async ({ path, viewed }) => { if (failViewed) throw new Error('Progress write failed'); files.find(file => file.path === path).viewed = viewed; return { viewed }; },
         draft: async input => { review.drafts.push({ ...input, id: 'draft-1', iteration: 2, status: 'draft' }); return { drafts: review.drafts }; },
         copilot: async input => { inference++; copilotInputs.push(input); return { queued: true }; },
         preparePublish: async () => { previews++; return { key: review.key, prId: pr.id, iteration: review.iteration.id, planToken: 'fixture-plan', payloads: review.drafts.map(draft => ({ draft, body: { threadContext: { filePath: `/${draft.path}` } } })), liveWriteVerification: false }; },
@@ -32,6 +32,13 @@ test('real Monaco worker, 70-file navigation, selection sides, drafts and zero i
         const initial = await page.evaluate(() => window.reviewCanvasDiagnostics());
         assert.equal(initial.monacoLoaded, true); assert.equal(initial.diffEditorReady, true); assert.equal(initial.workerVerified, true, JSON.stringify({ initial, consoleMessages, errors }));
         assert.equal(await page.locator('button.file').count(), 70); assert.equal(initial.modelCount, 2); assert.equal(initial.changedLines, 1); assert.ok(initial.workerCount > 0);
+        const reviewed = page.getByRole('checkbox', { name: 'Reviewed Folder0/File0.cs', exact: true });
+        assert.equal(await reviewed.isChecked(), false, 'Opening does not mark reviewed');
+        await reviewed.check(); await page.waitForFunction(() => document.getElementById('progress').textContent === '1 / 70');
+        assert.equal(await page.locator('#viewed').isChecked(), true);
+        failViewed = true; await reviewed.click(); await page.locator('#notice').filter({ hasText: 'Progress write failed' }).waitFor();
+        assert.equal(await reviewed.isChecked(), true); assert.equal(await page.locator('#viewed').isChecked(), true); failViewed = false;
+        await reviewed.uncheck(); await page.waitForFunction(() => document.getElementById('progress').textContent === '0 / 70');
         await page.locator('#viewed').check(); await page.waitForFunction(() => document.getElementById('progress').textContent === '1 / 70');
         await page.locator('#code .editor.original .view-lines').click(); await page.locator('#comment').click();
         assert.match(await page.locator('#comment-location').textContent(), /left L\d+/);

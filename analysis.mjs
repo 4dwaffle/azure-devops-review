@@ -94,6 +94,7 @@ export function ignoredReasons(file, filters, classification = {}) {
     if (!file.modeChanged && filters.formatting && classification.formattingOnly) reasons.push('formatting only');
     if (!file.modeChanged && filters.usings && classification.usingsOnly) reasons.push('using directives only');
     if (!file.modeChanged && filters.renames && classification.renameOnly) reasons.push(classification.fileRenameOnly ? 'file/path rename only' : 'detected type-rename references only');
+    if (!file.error && !file.binary && !file.modeChanged && filters.renames && classification.projectReferenceRenameOnly) reasons.push('project-reference path rename propagation only');
     if (!file.error && !file.binary && !file.modeChanged && filters.namespaceRenames && classification.namespaceTextOnly) reasons.push('namespace rename propagation (text-only; not compiler-verified)');
     for (const pattern of filters.patterns || []) if (posix.matchesGlob(file.path, pattern)) { reasons.push(`pattern: ${pattern}`); break; }
     return reasons;
@@ -257,6 +258,40 @@ function namespaceRenames(prepared) {
     const roots = pairs.filter(pair => !pairs.some(other => other !== pair && pair.from.startsWith(other.from + '.') && pair.to === other.to + pair.from.slice(other.from.length)));
     return {pairs:roots, origins};
 }
+function namespaceTokens(text) {
+    const pragmas = text.match(/^[ \t]*#pragma[ \t]+warning\b[^\r\n]*(?:\r?\n|$)/gm) || [];
+    return { pragmas, values: tokens(text.replace(/^[ \t]*#pragma[ \t]+warning\b[^\r\n]*(?:\r?\n|$)/gm, '\n')) };
+}
+function projectReferenceRenames(files) {
+    const projects = files.filter(file => /\.(csproj|fsproj|vbproj)$/i.test(file.path) && file.oldPath && file.oldPath !== file.path && /^R/.test(file.status) && !file.error && !file.binary && !file.modeChanged);
+    const pairs = projects.filter(file => projects.filter(other => other.oldPath === file.oldPath || other.path === file.path).length === 1);
+    const references = (owner, text) => {
+        if (!text || /<!DOCTYPE/i.test(text) || XMLValidator.validate(text) !== true) return null;
+        const values = []; let masked = '', end = 0;
+        for (const match of text.matchAll(/<!--[\s\S]*?-->|<!\[CDATA\[[\s\S]*?\]\]>|<[^>]*>/g)) {
+            if (!/^<ProjectReference\s/.test(match[0])) continue;
+            if (!/^<ProjectReference(?:\s+[\w:.-]+\s*=\s*(?:"[^"<>]*"|'[^'<>]*'))+\s*\/?>$/.test(match[0])) return null;
+            const attributes = [...match[0].matchAll(/([\w:.-]+)\s*=\s*(["'])(.*?)\2/g)];
+            const include = attributes.find(attribute => attribute[1] === 'Include');
+            if (!include || /[$@%*?;]/.test(include[3]) || include[3].includes('&') || /^[\\/]|^[A-Za-z]:/.test(include[3])) return null;
+            const offset = match.index + include.index + include[0].indexOf(include[2]) + 1;
+            masked += text.slice(end, offset) + '__PROJECT_REFERENCE_PATH__'; end = offset + include[3].length;
+            values.push(posix.normalize(posix.join(posix.dirname(owner), include[3].replaceAll('\\', '/'))));
+        }
+        return { masked: masked + text.slice(end), values };
+    };
+    return files.filter(file => /\.(csproj|fsproj|vbproj|props|targets)$/i.test(file.path) && !file.error && !file.binary && !file.modeChanged && file.original !== file.modified).flatMap(file => {
+        const left = references(file.oldPath || file.path, file.original), right = references(file.path, file.modified);
+        if (!left || !right || left.masked !== right.masked || left.values.length !== right.values.length) return [];
+        let changed = false;
+        for (let index = 0; index < left.values.length; index++) {
+            if (left.values[index] === right.values[index]) continue;
+            if (!pairs.some(pair => pair.oldPath === left.values[index] && pair.path === right.values[index])) return [];
+            changed = true;
+        }
+        return changed ? [{ path: file.path, projectReferenceRenameOnly: true }] : [];
+    });
+}
 export function detectRenames(files) {
     const prepared = files.filter(file => /\.cs$/i.test(file.path) && !file.binary && !file.error).map(file => ({ ...file, left: tokens(file.original), right: tokens(file.modified) }));
     const proposals = [], origins = new Set();
@@ -301,8 +336,13 @@ export function detectRenames(files) {
         const renameOnly = fileRenameOnly || !origins.has(file.path) && matches.length > 0 && file.original && file.modified && file.right && JSON.stringify(file.left.map(token => replacements.get(token) || token)) === JSON.stringify(file.right);
         return { path: file.path, renameOnly: Boolean(renameOnly), fileRenameOnly, namespaceTextOnly: false, renames: renameOnly ? pairs.filter(pair => matches.includes(pair.from)) : [] };
     });
-    const namespaces = namespaceRenames(prepared);
-    for (const file of prepared) {
+    const namespacePrepared = prepared.map(file => {
+        if (file.left && file.right) return file;
+        const before = namespaceTokens(file.original), after = namespaceTokens(file.modified);
+        return before.pragmas.length && JSON.stringify(before.pragmas) === JSON.stringify(after.pragmas) ? { ...file, left: before.values, right: after.values, namespacePragmas: true } : file;
+    });
+    const namespaces = namespaceRenames(namespacePrepared);
+    for (const file of namespacePrepared) {
         if (!file.original || !file.modified || file.error || file.modeChanged) continue;
         const headerBefore = leadingUsings(file.original), headerAfter = leadingUsings(file.modified);
         const headerOnly = (!file.left || !file.right) && headerBefore && headerAfter && headerBefore.removed > 0 && headerBefore.body === headerAfter.body;
@@ -318,9 +358,10 @@ export function detectRenames(files) {
         if (used.length && JSON.stringify(transformed) === JSON.stringify(right)) {
             const value = classifications.find(value => value.path === file.path);
             value.namespaceTextOnly = text === file.modified;
-            if (!headerOnly && !origins.has(file.path) && !namespaces.origins.has(file.path)) { value.renameOnly = true; value.namespaceRenameOnly = true; value.renames = used; }
+            if (!headerOnly && !file.namespacePragmas && !origins.has(file.path) && !namespaces.origins.has(file.path)) { value.renameOnly = true; value.namespaceRenameOnly = true; value.renames = used; }
         }
     }
+    classifications.push(...projectReferenceRenames(files));
     return { pairs: [...pairs, ...namespaces.pairs], classifications, ambiguous: [...ambiguous] };
 }
 export async function analyzeReview(review, readFile, classify = false, configurations = {}) {
@@ -343,7 +384,7 @@ export async function analyzeReview(review, readFile, classify = false, configur
     }));
     classifications.sort((a, b) => a.path.localeCompare(b.path)); manifests.sort((a, b) => a.path.localeCompare(b.path));
     sourceFiles.sort((a, b) => a.path.localeCompare(b.path));
-    const renamed = detectRenames(sourceFiles);
+    const renamed = detectRenames([...new Map([...sourceFiles, ...manifests].map(file => [file.path, file])).values()]);
     const renameClassification = new Map(renamed.classifications.map(value => [value.path, value]));
     const classifiedFiles = new Map(classifications.map(value => [value.path, { ...value, ...renameClassification.get(value.path) }]));
     for (const file of review.files) if (/^R100$/.test(file.status) && file.blobUnchanged === true) classifiedFiles.set(file.path, { ...classifiedFiles.get(file.path), path: file.path, renameOnly: true, fileRenameOnly: true });

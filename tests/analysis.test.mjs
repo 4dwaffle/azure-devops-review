@@ -2,6 +2,37 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { classifyChange, normalizeFilters, ignoredReasons, detectRenames, dependencyDelta, parseDependencies, analyzeReview } from '../analysis.mjs';
 const file = (path, original, modified, extra = {}) => ({ path, oldPath: path, original, modified, status: 'M', ...extra });
+test('project-reference propagation requires an unambiguous moved project and unchanged XML outside Include paths', async () => {
+    const project = file('Assembly/Mace.Data/Mace.Data.csproj', '<Project/>', '<Project/>', { oldPath:'Assembly/Copeland.Mace.Data/Copeland.Mace.Data.csproj', status:'R100', blobUnchanged:true });
+    const before = '<Project><ItemGroup><ProjectReference Include="..\\Copeland.Mace.Data\\Copeland.Mace.Data.csproj" Condition="true"><Private>true</Private></ProjectReference></ItemGroup></Project>';
+    const after = before.replaceAll('Copeland.Mace.Data', 'Mace.Data');
+    const owner = file('Assembly/Board/Board.csproj',before,after);
+    const classify = (value, projects=[project]) => detectRenames([...projects,value]).classifications.find(item => item.path===value.path)?.projectReferenceRenameOnly === true;
+    assert.equal(classify(owner),true);
+    assert.deepEqual(ignoredReasons(owner,normalizeFilters(),{projectReferenceRenameOnly:true}),['project-reference path rename propagation only']);
+    assert.deepEqual(ignoredReasons(owner,normalizeFilters({renames:false}),{projectReferenceRenameOnly:true}),[]);
+    for (const changed of [after.replace('true','false'),after.replace('<Private>true','<Private>false'),after.replace('</Project>','<PackageReference Include="New"/></Project>'),after.replace('Mace.Data.csproj','Other.csproj'),after.replace('</Project>','<!-- changed --></Project>'),after.replace(' Include=', '  Include=')]) assert.equal(classify({...owner,modified:changed}),false,changed);
+    for (const extra of [{modeChanged:true},{binary:true},{error:'Read failed'}]) assert.equal(classify({...owner,...extra}),false);
+    assert.equal(classify(owner,[]),false);
+    assert.equal(classify(owner,[project,{...project,path:'Assembly/Other/Other.csproj'}]),false);
+    const fake = before.replace('<ProjectReference ', '<!-- <ProjectReference Include="fake"/> --><ProjectReference ');
+    assert.equal(classify({...owner,original:fake,modified:fake.replace('fake','changed').replaceAll('Copeland.Mace.Data','Mace.Data')}),false);
+    const quoted = before.replace('<ProjectReference ', '<ProjectReference Label="Include=\'fake\'" ');
+    assert.equal(classify({...owner,original:quoted,modified:quoted.replaceAll('Copeland.Mace.Data','Mace.Data')}),true);
+    const result = await analyzeReview({files:[project,owner]},async path=>[project,owner].find(file=>file.path===path),true);
+    assert.equal(result.classifications.find(value=>value.path===owner.path).projectReferenceRenameOnly,true);
+    assert.ok(result.dependencies.edges.length,'Dependency analysis remains available');
+});
+test('moved namespace declarations with unchanged warning pragmas are text-only, never compiler rename proof', () => {
+    const original = 'using Old.Data.ModelConfiguration;\n#pragma warning disable CS8618 // unchanged\nnamespace Old.Data.Entities;\nclass Entity { int x; }';
+    const origin = file('Origin.cs','namespace Old.Data; class Origin {}','namespace New.Data; class Origin {}');
+    const moved = file('New/Entity.cs',original,original.replaceAll('Old.Data','New.Data'),{oldPath:'Old/Entity.cs',status:'R'});
+    const classification = value => detectRenames([origin,value]).classifications.find(item=>item.path===value.path);
+    assert.equal(classification(moved).namespaceTextOnly,true);
+    assert.equal(classification(moved).renameOnly,false);
+    for (const modified of [moved.modified.replace('int x','int y'),moved.modified.replace('CS8618','CS0000'),moved.modified.replace('// unchanged','// edited'),moved.modified.replace('class Entity','\nclass Entity')]) assert.equal(classification({...moved,modified}).namespaceTextOnly,false);
+    for (const directive of ['#if DEBUG\n','#nullable enable\n']) assert.equal(classification({...moved,original:directive+original,modified:directive+moved.modified}).namespaceTextOnly,false);
+});
 test('formatting classification preserves lexical boundaries and unsupported syntax', () => {
     assert.equal(classifyChange('A.cs', 'class A{int x=1;}', 'class A { int x = 1; }').formattingOnly, true);
     assert.equal(classifyChange('A.json', '{"a":1}', '{\n "a": 1\n}').formattingOnly, true);

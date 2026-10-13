@@ -2,6 +2,15 @@
 
 Private Azure DevOps extension adding a **Filtered Review** pull-request tab beside the native **Files** tab. This does not replace or modify Azure's built-in Files component.
 
+## Prepared update: 0.1.10 (not published)
+
+Local tests and packaging passed: root **56 passed / 1 skipped**, tab **26 passed / 1 skipped**, including both real Edge suites. Native extension reload and the diagnostics RPC succeeded. Marketplace currently redirects to Microsoft sign-in, so publishing and deployed-CDN verification are blocked; 0.1.9 remains the published version.
+
+- Artifact: `artifacts/VaclavBerny.azure-filtered-review-0.1.10.vsix`
+- Size: **15,693,431 bytes**
+- SHA-256: `E1FDC4D5F1E4D12A66051BF92F2004FEAC8B96430D0383AFC5DD5F3D92F192FB`
+- Package identity: **0.1.10**; all **212 addressable files** and **213 VSIX asset declarations** are present.
+
 ## Build and install
 
 Requires Node.js 22+.
@@ -23,6 +32,7 @@ Current PR discovery first checks SDK configuration, then the documented host na
 - The compact toolbar avoids repeating Azure’s PR title. **Ignore filters** opens a popover. Resource files, formatting-only, using-directive-only, repeated rename references, generated code, designers, migrations and custom globs are configurable. **Show ignored** does not change progress totals.
 - The file tree uses nested indentation, collapsible directory icons and file-type icons. Folder selection includes matching descendants; search reveals collapsed matches.
 - Renames, directory moves and combined moves/renames are labeled separately, with the original → destination path shown above the diff and in row tooltips. Search matches either path. Azure's separate addition/deletion rows are paired only when exactly one of each has the same immutable regular-file blob ID and the old path actually disappears. Duplicate-content ambiguity, missing metadata, copies and changed-content addition/deletion pairs remain separate. Explicit Azure renames retain their content edits; mode changes stay visible. Original and destination EditorConfig ancestors are both loaded. This is exact path-change detection, not proof that relocation preserves runtime or build behavior.
+- Each file has a right-side **Reviewed** checkbox for immediate durable progress. The left checkbox is separate bulk selection; merely opening a file does not mark it reviewed. Failed storage writes restore the persisted state, and the toolbar stays synchronized.
 - Counts are `reviewed non-ignored / non-ignored · ignored`. Search also does not change these totals. Select individual files or folders, **Select all**, then mark the selection reviewed/unreviewed in one atomic browser-storage write, without a 20-file limit.
 - Browser-local progress is scoped to organization, user, repository and PR. Contents, rename paths and Git modes invalidate reviewed fingerprints; unrelated PR updates do not erase unchanged files. Clearing site storage removes progress. This is not synchronized with Azure's native viewed state or the Copilot canvas's local progress.
 - **Dependencies** displays manifest declarations and explicit C# using directives independently of ignore filters, with owner-file navigation and an option to show unchanged connections. C# import edges are syntax-only, not resolved symbol dependencies. Unsupported source syntax is reported explicitly. Diagrams are bounded to 200 connections and 20 displayed warnings; complete immutable diffs remain available. This is not a full call graph or transitive dependency graph.
@@ -48,9 +58,15 @@ Azure's diff listed 247 original-path deletions alongside their rename destinati
 
 The normalized PR has **80 ignored files / 1,260 visible files**; previously 51 of those redundant deletion rows contributed to the ignored count. Its 1,273 C# files / 21.6 million source characters exceed complete browser rename-binding limits, and project-specific dependencies are unavailable. Consequently unresolved namespace/project rename references remain visible. Hiding the entire PR safely requires complete project/solution compiler context; the PR title or token substitutions are not sufficient proof. The under-minute result applies to interactive loading, not completed semantic filtering.
 
+## Project-reference rename propagation
+
+The existing rename filter hides pure `ProjectReference Include` path propagation when an unambiguous project move/rename in the PR maps the resolved old/new targets. Valid XML and byte-identical text outside those paths are required. Conditions, metadata, packages, comments, unknown targets and mixed edits stay visible. This covers the actual `Mace.Boards.TruckOrganization.csproj` change in PR 2620 without disabling dependency analysis.
+
 ## Optional namespace propagation filter
 
-Enable **Ignore filters → Namespace rename propagation (text-only)** to hide exact namespace substitutions, including namespace-only edits in moved/renamed declaration files. This independent preference is **off by default**, including for existing users. The popover shows the inferred old → new namespace mapping and candidate count. Show ignored reveals suppressed files without marking them reviewed or affecting comments, drafts or progress.
+The upcoming 0.1.10 local Edge run against PR 2620's **cached immutable snapshot** measured **1,281 ignored / 59 visible** with namespace text filtering enabled (0.1.9: 1,243 / 97). Analysis found 25 project-reference propagation files and 1,176 namespace-only candidates. Interactive rendering took 0.58 seconds, completed analysis 18.70 seconds, and navigation 66 ms, with 44 diagrams and no browser errors. These cached timings exclude Azure loading and are not deployed-CDN performance. Both reported example files are now classified appropriately; the moved entity still requires the explicit text-only namespace preference.
+
+Enable **Ignore filters → Namespace rename propagation (text-only)** to hide exact namespace substitutions, including namespace-only edits in moved/renamed declaration files. This independent preference is **off by default**, including for existing users. The popover shows the inferred old → new namespace mapping and candidate count. When disabled, a visible notice links to this setting without silently changing preferences. Identical warning pragmas can be excluded from tokenization only while retaining exact raw-source replacement checks, covering the moved `SchedulePartEntity.cs`. Changed pragmas and conditional directives remain unsupported. Show ignored reveals suppressed files without marking them reviewed or affecting comments, drafts or progress.
 
 Mappings require matching namespace/type declarations and reject conflicts. Candidates must pass both token comparison and exact source-text replacement. If the complete body cannot be tokenized, a validated leading using-directive header can instead be compared while requiring the entire remaining body to be byte-identical. This covers import-only changes in files such as `UpdateMachineUseCase.cs` containing unchanged interpolated strings, directives or large bodies. Mixed edits, changed literals/comments, mode changes, read errors, ambiguous mappings and unsupported changes outside that header remain visible. Analysis and diagrams run in the worker; toggling the filter is local and inference-free, requires no new API reads, and works even if Roslyn is unavailable. It is a text-only policy, **not compiler equivalence**: runtime binding, reflection, `nameof` and caller-information effects are not verified. Review namespace origins and dependency diagrams before enabling it. Existing compiler-verified rename filtering is unchanged.
 
