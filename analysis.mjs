@@ -62,10 +62,20 @@ function withoutUsings(values) {
     }
     return { values: result, removed };
 }
+function leadingUsings(text) {
+    const header = text.match(/^(?:\s*(?:global\s+)?using\b[^;{}]*;)+/)?.[0] || '';
+    const values = tokens(header), stripped = values && withoutUsings(values);
+    if (!stripped || stripped.values.length) return null;
+    return { values, removed: stripped.removed, body: text.slice(header.length) };
+}
 export function classifyChange(path, original, modified) {
     const result = { resource: resourcePath(path), formattingOnly: false, usingsOnly: false };
     if (!original || !modified || original === modified || !/\.(cs|json)$/i.test(path)) return result;
     if (/\.json$/i.test(path)) { try { JSON.parse(original); JSON.parse(modified); } catch { return result; } }
+    if (/\.cs$/i.test(path)) {
+        const left = leadingUsings(original), right = leadingUsings(modified);
+        result.usingsOnly = !!left && !!right && left.removed + right.removed > 0 && left.body === right.body && JSON.stringify(left.values) !== JSON.stringify(right.values);
+    }
     const before = tokens(original), after = tokens(modified); if (!before || !after) return result;
     result.formattingOnly = JSON.stringify(before) === JSON.stringify(after);
     if (!result.formattingOnly && /\.cs$/i.test(path)) {
@@ -293,18 +303,22 @@ export function detectRenames(files) {
     });
     const namespaces = namespaceRenames(prepared);
     for (const file of prepared) {
-        if (!file.original || !file.modified || !file.left || !file.right || file.error || file.modeChanged) continue;
-        let transformed = file.left, text = file.original;
+        if (!file.original || !file.modified || file.error || file.modeChanged) continue;
+        const headerBefore = leadingUsings(file.original), headerAfter = leadingUsings(file.modified);
+        const headerOnly = (!file.left || !file.right) && headerBefore && headerAfter && headerBefore.removed > 0 && headerBefore.body === headerAfter.body;
+        const left = headerOnly ? headerBefore.values : file.left, right = headerOnly ? headerAfter.values : file.right;
+        if (!left || !right) continue;
+        let transformed = left, text = file.original;
         const used = [];
         for (const pair of namespaces.pairs) {
             const next = replaceNamespace(transformed, pair.from, pair.to);
             if (JSON.stringify(next) !== JSON.stringify(transformed)) { used.push(pair); text = text.replaceAll(pair.from, pair.to); }
             transformed = next;
         }
-        if (used.length && JSON.stringify(transformed) === JSON.stringify(file.right)) {
+        if (used.length && JSON.stringify(transformed) === JSON.stringify(right)) {
             const value = classifications.find(value => value.path === file.path);
             value.namespaceTextOnly = text === file.modified;
-            if (!origins.has(file.path) && !namespaces.origins.has(file.path)) { value.renameOnly = true; value.namespaceRenameOnly = true; value.renames = used; }
+            if (!headerOnly && !origins.has(file.path) && !namespaces.origins.has(file.path)) { value.renameOnly = true; value.namespaceRenameOnly = true; value.renames = used; }
         }
     }
     return { pairs: [...pairs, ...namespaces.pairs], classifications, ambiguous: [...ambiguous] };

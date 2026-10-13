@@ -23,11 +23,11 @@ test('Deployed CDN: module worker, WASM and trusted semantic equivalence analyze
   const propagation=await page.evaluate(()=>new Promise((resolve,reject)=>{
    const worker=new Worker(new URL('./analysis-worker.js',location.href),{type:'module'}),timer=setTimeout(()=>{worker.terminate();reject(new Error('Deployed namespace worker timed out'));},15000);
    worker.onerror=event=>{clearTimeout(timer);worker.terminate();reject(new Error(event.message));};worker.onmessage=event=>{clearTimeout(timer);worker.terminate();resolve(event.data);};
-   worker.postMessage({configurations:[],files:[{path:'New/Entity.cs',oldPath:'Old/Entity.cs',status:'R',original:'namespace Old.Data; public class Entity {}',modified:'namespace New.Data; public class Entity {}'},{path:'Reference.cs',status:'M',original:'using Old.Data; class R { Old.Data.Entity value; }',modified:'using New.Data; class R { New.Data.Entity value; }'},{path:'Mixed.cs',status:'M',original:'using Old.Data; class X { int x=1; }',modified:'using New.Data; class X { int x=2; }'}]});
+   worker.postMessage({configurations:[],files:[{path:'New/Entity.cs',oldPath:'Old/Entity.cs',status:'R',original:'namespace Old.Data; public class Entity {}',modified:'namespace New.Data; public class Entity {}'},{path:'Reference.cs',status:'M',original:'using Old.Data; class R { Old.Data.Entity value; }',modified:'using New.Data; class R { New.Data.Entity value; }'},{path:'UpdateMachineUseCase.cs',status:'M',original:'using Old.Data;\nclass Handler { string M(int id)=>$"Machine {id} not found."; }',modified:'using New.Data;\nclass Handler { string M(int id)=>$"Machine {id} not found."; }'},{path:'Mixed.cs',status:'M',original:'using Old.Data; class X { int x=1; }',modified:'using New.Data; class X { int x=2; }'}]});
   }));
   assert.equal(propagation.semanticPending,true);assert.deepEqual(propagation.namespaceRenames.map(pair=>[pair.from,pair.to]),[['Old.Data','New.Data']]);
   const candidates=new Map(propagation.classifications.map(value=>[value.path,value]));
-  for(const path of ['New/Entity.cs','Reference.cs']){assert.equal(candidates.get(path).namespaceTextOnly,true);assert.equal(candidates.get(path).renameOnly,false);assert.notEqual(candidates.get(path).semanticVerified,true);}
+  for(const path of ['New/Entity.cs','Reference.cs','UpdateMachineUseCase.cs']){assert.equal(candidates.get(path).namespaceTextOnly,true);assert.equal(candidates.get(path).renameOnly,false);assert.notEqual(candidates.get(path).semanticVerified,true);}
   assert.equal(candidates.get('Mixed.cs').namespaceTextOnly,false);
   const result=await page.evaluate(async()=>{
    const module=await import('./roslyn/index.js');

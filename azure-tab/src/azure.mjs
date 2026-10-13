@@ -24,8 +24,15 @@ export async function loadPullRequest(connection,id) {
  let files=changedFiles(changes);
  const descriptor=version=>({version,versionType:2});
  const item=(path,version,content=true)=>client.getItem(repository,'/'+path,project,undefined,0,true,false,false,descriptor(version),content,false);
- const modes={};
- await Promise.all([base,source].map(async version=>{const commit=await client.getCommit(version,repository,project,0);const tree=await client.getTree(repository,commit.treeId,project,undefined,true);modes[version]=new Map(tree.treeEntries.map(entry=>[entry.relativePath.replace(/^\//,''),entry]));}));
+ const modes={},completeTrees={};
+ await Promise.all([base,source].map(async version=>{const commit=await client.getCommit(version,repository,project,0);const tree=await client.getTree(repository,commit.treeId,project,undefined,true);modes[version]=new Map(tree.treeEntries.map(entry=>[entry.relativePath.replace(/^\//,''),entry]));completeTrees[version]=tree.truncated!==true;}));
+ const contents=new Map();
+ const readItem=(path,version)=>{
+  const blob=modes[version].get(path)?.objectId;
+  const key=/^[a-f0-9]{40}$/i.test(blob||'')&&!/^0+$/.test(blob)?blob.toLowerCase():JSON.stringify([path,version]);
+  if(!contents.has(key))contents.set(key,item(path,version));
+  return contents.get(key);
+ };
  files=inferExactRenames(files,modes[base],modes[source]);
  let latestIteration=null,threads=[],threadError;
  try {const iterations=await client.getPullRequestIterations(repository,id,project);const latest=[...iterations].sort((a,b)=>b.id-a.id)[0];latestIteration=latest?.sourceRefCommit?.commitId===source&&latest?.targetRefCommit?.commitId===target?latest.id:null;threads=await client.getThreads(repository,id,project,latestIteration??undefined,latestIteration??undefined);}catch(error){threadError=`Comment threads unavailable: ${error.message||error}`;}
@@ -36,16 +43,19 @@ export async function loadPullRequest(connection,id) {
   file.binary=[left,right].some(entry=>entry&&entry.mode!=='100644'&&entry.mode!=='100755');
   if(file.status==='R'&&/^[a-f0-9]{40}$/i.test(left?.objectId||'')&&!/^0+$/.test(left.objectId)&&left.objectId===right?.objectId){file.status='R100';file.blobUnchanged=true;}
   try {
-   const [before,after]=await Promise.all([file.status==='A'?null:item(file.oldPath||file.path,base),file.status==='D'?null:item(file.path,source)]);
+   const [before,after]=await Promise.all([file.status==='A'?null:readItem(file.oldPath||file.path,base),file.status==='D'?null:readItem(file.path,source)]);
    file.binary ||= !!before?.contentMetadata?.isBinary||!!after?.contentMetadata?.isBinary;
    if(!file.binary&&((before&&typeof before.content!=='string')||(after&&typeof after.content!=='string')))throw new Error('Azure did not return text content; this file must be reviewed in the native Files tab.');
    file.original=file.binary?'':before?.content||'';file.modified=file.binary?'':after?.content||'';
    if(file.binary){file.original=left?.objectId||'';file.modified=right?.objectId||'';}
    file.fingerprint=await fingerprint(file);
   }catch(error){file.error=String(error.message||error);file.original='';file.modified='';}
- });
+ },8);
  const configs=new Set(['.editorconfig','.globalconfig']);for(const file of files)for(const path of new Set([file.path,file.oldPath].filter(Boolean))){const parts=path.split('/');parts.pop();while(parts.length){configs.add(parts.join('/')+'/.editorconfig');parts.pop();}}
  const configurations=[];
- await mapBounded([...configs],async path=>{await Promise.all([base,source].map(async version=>{try {const config=await item(path,version);configurations.push({path,side:version===base?'base':'source',contents:config.content||''});}catch(error){if(error.status!==404&&error.statusCode!==404)configurations.push({path,error:String(error.message||error)});}}));});
+ await mapBounded([...configs],async path=>{await Promise.all([base,source].map(async version=>{
+  if(completeTrees[version]&&!modes[version].has(path))return;
+  try {const config=await readItem(path,version);configurations.push({path,side:version===base?'base':'source',contents:config.content||''});}catch(error){if(error.status!==404&&error.statusCode!==404)configurations.push({path,error:String(error.message||error)});}
+ }));});
  return {pr,repository,source,target,base,files,threads,latestIteration,threadError,configurations};
 }

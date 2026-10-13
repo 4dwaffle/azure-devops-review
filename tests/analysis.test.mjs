@@ -13,6 +13,26 @@ test('using filters distinguish directives from executable using declarations', 
     assert.equal(classifyChange('A.cs', 'namespace N { using System; class A {} }', 'namespace N { class A {} }').usingsOnly, true);
     for (const [left, right] of [['class A { void M(){ using X; } }', 'class A { void M(){} }'], ['using var stream = Open();', ''], ['using System; class A { int x; }', 'class A { string x; }'], ['using /* important */ System; class A {}', 'class A {}']]) assert.equal(classifyChange('A.cs', left, right).usingsOnly, false);
 });
+test('using-only headers work with an unchanged unsupported body without claiming a verified rename', () => {
+    const body = '\nnamespace N; class Handler { string M(int id)=>$"Machine {id} not found."; }';
+    const original = 'using Old.Data.Entities;\nusing Old.Data.UnitOfWork;' + body;
+    const modified = original.replaceAll('Old.Data', 'New.Data');
+    assert.equal(classifyChange('UpdateMachineUseCase.cs', original, modified).usingsOnly, true);
+    const origin = file('Entity.cs', 'namespace Old.Data; class Entity {}', 'namespace New.Data; class Entity {}');
+    const result = detectRenames([origin, file('UpdateMachineUseCase.cs', original, modified)]);
+    const value = result.classifications.find(value => value.path === 'UpdateMachineUseCase.cs');
+    assert.equal(value.namespaceTextOnly, true);
+    assert.equal(value.renameOnly, false, 'Header-only proof must not enter the compiler rename path');
+    assert.deepEqual(ignoredReasons({path:value.path}, normalizeFilters({namespaceRenames:true}), value), ['namespace rename propagation (text-only; not compiler-verified)']);
+    for (const changed of [modified.replace('not found.', 'missing.'), modified.replace('{id}', '{id+1}'), modified.replace('namespace N;', 'namespace Other;'), modified.replace('New.Data.Entities', 'Other.Data.Entities'), modified.replace('using New.Data.Entities;', 'using /* changed */ New.Data.Entities;')]) {
+        assert.equal(detectRenames([origin, file('Test.cs', original, changed)]).classifications.at(-1).namespaceTextOnly, false, changed);
+    }
+    for (const suffix of ['\n#if DEBUG\nclass C {}\n#endif', '\nclass C { string s="Old.Data"; }', '\n// Old.Data\nclass C {}']) {
+        const left = 'using Old.Data;' + suffix, right = left.replaceAll('Old.Data', 'New.Data');
+        const value = detectRenames([origin,file('Test.cs',left,right)]).classifications.at(-1);
+        assert.equal(value.namespaceTextOnly, suffix.startsWith('\n#if'), suffix);
+    }
+});
 test('persistent filters default to rename suppression and support safe relative globs', () => {
     const filters = normalizeFilters({ resources: true, designers: false, patterns: ['**/*.Designer.cs', '**/*.Designer.cs'] });
     assert.equal(filters.renames, true); assert.equal(filters.patterns.length, 1);
