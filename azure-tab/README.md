@@ -1,8 +1,15 @@
 # Azure DevOps Filtered Review
 
-## Prepared 0.1.12 (not published)
+## Published update: 0.1.12
 
-The Reviewed checkbox is the leftmost file-row control. File/folder multiselect, Select all and the bulk action toolbar are removed. Opening a file still does not mark it reviewed; progress persistence, failed-save rollback and keyboard navigation are unchanged. Editor-local Find is bundled: double-click a word and press Ctrl/Cmd+F to search the focused file pane. This package is built and browser-tested; the published Marketplace version remains 0.1.11.
+The Reviewed checkbox is the leftmost file-row control. File/folder multiselect, Select all and the bulk action toolbar are removed. Opening a file still does not mark it reviewed; progress persistence, failed-save rollback and keyboard navigation are unchanged. Editor-local Find is bundled: double-click a word and press Ctrl/Cmd+F to search the focused file pane.
+
+Marketplace validation completed with availability still **Private (shared with 1)**. Reloading PR 2620 confirmed its installed tab uses the **0.1.12** CDN iframe. The deployed Edge CDN suite passed, including exact production UI bytes, worker initialization and trusted semantic-equivalence regressions. Local browser regressions passed for selection-seeded Find in both side-by-side panes and the inline modified pane, alongside reviewed-state and navigation checks.
+
+- Artifact: `artifacts/VaclavBerny.azure-filtered-review-0.1.12.vsix`
+- Size: **15,713,649 bytes**
+- SHA-256: `123A840C43C20F79EBCFA8B046E112AD5CAD52E6A8A33F5D3A65A19E7E3381DD`
+- CDN: `https://vaclavberny.gallerycdn.vsassets.io/extensions/vaclavberny/azure-filtered-review/0.1.12/1791891890319`
 
 
 Private Azure DevOps extension adding a **Filtered Review** pull-request tab beside the native **Files** tab. This does not replace or modify Azure's built-in Files component.
