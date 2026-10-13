@@ -59,9 +59,9 @@ test('real Monaco worker, 70-file navigation, selection sides, drafts and zero i
         await page.locator('#copilot').click(); await page.locator('#copilot-scope').selectOption('file'); await page.locator('#copilot-form button[type=submit]').click();
         await page.locator('#copilot-dialog').waitFor({ state: 'hidden' }); assert.equal(inference, 2); assert.equal(copilotInputs[1].startLine, undefined);
         await page.locator('#file-filter').fill('Folder6/');
-        await page.locator('input[data-selection-path="Folder6/File68.cs"]').check(); await page.locator('input[data-selection-path="Folder6/File69.cs"]').check();
-        await page.locator('#copilot').click(); assert.equal(await page.locator('#copilot-scope').inputValue(), 'files'); await page.locator('#copilot-form button[type=submit]').click();
-        await page.locator('#copilot-dialog').waitFor({ state: 'hidden' }); assert.equal(inference, 3); assert.deepEqual(copilotInputs[2].paths, ['Folder6/File68.cs', 'Folder6/File69.cs']);
+        assert.equal(await page.locator('input[data-selection-path], input[data-selection-folder], #select-visible, #mark-selected-reviewed').count(), 0);
+        assert.equal(await page.getByRole('checkbox', { name: 'Reviewed Folder6/File69.cs', exact: true }).evaluate(node => node.parentElement.firstElementChild === node), true);
+        assert.equal(inference, 2);
         assert.equal(publications, 0); assert.deepEqual(errors, []);
         await page.evaluate(() => { const editor = monaco.editor.getEditors().find(editor => editor.getModel()?.uri.authority === 'base'); editor.focus(); editor.setSelection(new monaco.Selection(1, 7, 1, 10)); });
         await page.locator('#comment').click(); await page.locator('#comment-content').fill('Precise word range'); await page.locator('#comment-form button[type=submit]').click();
@@ -74,9 +74,9 @@ test('real Monaco worker, 70-file navigation, selection sides, drafts and zero i
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth), false); await page.locator('#close-publish-preview').click();
         await page.locator('#settings-button').click(); await page.locator('#write-enabled').check(); await page.locator('#config-form button[type=submit]').click(); await page.locator('#settings').waitFor({ state: 'hidden' });
         page.once('dialog', dialog => dialog.dismiss()); await page.locator('#publish').click(); await page.waitForFunction(() => !document.getElementById('publish').disabled); assert.equal(previews, 2); assert.equal(publications, 0);
-        page.once('dialog', dialog => dialog.accept()); await page.locator('#publish').click(); await page.waitForFunction(() => document.getElementById('drafts').children.length === 0); assert.equal(previews, 3); assert.equal(publications, 1); assert.equal(inference, 3);
+        page.once('dialog', dialog => dialog.accept()); await page.locator('#publish').click(); await page.waitForFunction(() => document.getElementById('drafts').children.length === 0); assert.equal(previews, 3); assert.equal(publications, 1); assert.equal(inference, 2);
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth), false);
         await page.reload(); await page.locator('.pr-card').click(); await page.waitForFunction(() => document.getElementById('progress').textContent === '1 / 70');
-        assert.equal(inference, 3);
+        assert.equal(inference, 2);
     } finally { await browser.close(); await server.close(); }
 });

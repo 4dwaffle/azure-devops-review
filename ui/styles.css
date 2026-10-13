@@ -20,5 +20,3 @@
 .pr-card .draft-state { margin-bottom: 6px; }
 .pr-heading { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px; margin-bottom: 6px; }
 .pr-heading h2 { margin: 0; }
-.bulk-selection { padding: 6px 0; border-bottom: 1px solid var(--border-color-default, #d0d7de); }
-.bulk-selection .buttons { flex-wrap: wrap; gap: 4px; }

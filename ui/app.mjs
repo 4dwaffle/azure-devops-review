@@ -5,9 +5,9 @@ import { pathChange } from './path-changes.mjs';
 const $ = id => document.getElementById(id);
 let config, prs = [], review, current, diff, models = [], navigation = 0, reviewNavigation = 0, controller, selection;
 let monacoLoaded = false, workerVerified = false, workerError = '', activeSide = 'right';
-const modelStates = new Map(), selectedFiles = new Set(), viewing = new Set();
+const modelStates = new Map(), viewing = new Set();
 let analysis, analysisSequence = 0, classifications = new Map();
-let workerCount = 0, prListSequence = 0, bulkViewing = false;
+let workerCount = 0, prListSequence = 0;
 window.MonacoEnvironment = { getWorker: (_, label) => {
     const worker = new Worker('/vendor/vs/base/worker/workerMain.js', { name: label }); workerCount++;
     worker.addEventListener('message', () => workerVerified = true);
@@ -44,12 +44,12 @@ function renderPrs() {
     if (!root.children.length) root.append(element('p', 'No pull requests match.', 'empty'));
 }
 async function openReview(pr) {
-    const sequence = ++reviewNavigation; ++navigation; ++analysisSequence; controller?.abort(); current = null; review = null; selection = null; selectedFiles.clear(); analysis = null; classifications.clear();
+    const sequence = ++reviewNavigation; ++navigation; ++analysisSequence; controller?.abort(); current = null; review = null; selection = null; analysis = null; classifications.clear();
     $('dependencies').disabled = true; $('dependencies').textContent = 'Dependency diagrams'; $('filter-status').textContent = ''; $('ignored-file-status').textContent = ''; $('dependency-file-summary').hidden = true;
     diff?.setModel(null); models.forEach(model => { monaco.editor.setModelMarkers(model, 'roslyn', []); model.dispose(); }); models = [];
     for (const id of ['threads', 'drafts', 'file-tree']) $(id).replaceChildren();
     for (const id of ['preview-publish', 'publish', 'fetch', 'reload-review']) $(id).disabled = true;
-    $('review-pr-state').hidden = true; renderSelection(); $('pr-title').textContent = `Opening #${pr.id}…`; $('review-meta').textContent = ''; $('current-file').textContent = 'Select a file'; $('progress').textContent = '0 / 0';
+    $('review-pr-state').hidden = true; $('pr-title').textContent = `Opening #${pr.id}…`; $('review-meta').textContent = ''; $('current-file').textContent = 'Select a file'; $('progress').textContent = '0 / 0';
     setEnabled(false); notice(`Opening #${pr.id}…`);
     const result = await api('review', { organization: pr.organization, project: pr.project, repositoryId: pr.repositoryId, id: pr.id });
     if (sequence !== reviewNavigation) return;
@@ -128,53 +128,18 @@ $('filters-form').onsubmit = guard(async event => {
 $('dependencies').onclick = () => { renderDependencies(); $('dependency-dialog').showModal(); };
 $('dependency-context').onchange = renderDependencies;
 $('close-dependencies').onclick = () => $('dependency-dialog').close();
-function renderSelection() {
-    const shown = visibleFiles(), byPath = new Map((review?.files || []).map(file => [file.path, file]));
-    for (const checkbox of $('file-tree').querySelectorAll('input[data-selection-path]')) checkbox.checked = selectedFiles.has(checkbox.dataset.selectionPath);
-    for (const checkbox of $('file-tree').querySelectorAll('input[data-selection-folder]')) {
-        const files = shown.filter(file => file.path.startsWith(`${checkbox.dataset.selectionFolder}/`));
-        const count = files.filter(file => selectedFiles.has(file.path)).length;
-        checkbox.checked = count > 0 && count === files.length; checkbox.indeterminate = count > 0 && count < files.length;
-    }
-    const selected = [...selectedFiles].filter(path => byPath.has(path)), visible = new Set(shown.map(file => file.path));
-    const hidden = selected.filter(path => !visible.has(path)).length;
-    $('selected-count').textContent = `${selected.length} selected${hidden ? ` (${hidden} outside current search)` : ''}`;
-    $('select-visible').disabled = !shown.length || bulkViewing; $('clear-selection').disabled = !selected.length || bulkViewing;
-    $('mark-selected-reviewed').disabled = bulkViewing || !selected.some(path => !byPath.get(path).viewed);
-    $('mark-selected-unreviewed').disabled = bulkViewing || !selected.some(path => byPath.get(path).viewed);
-}
-$('select-visible').onclick = () => { visibleFiles().forEach(file => selectedFiles.add(file.path)); renderSelection(); };
-$('clear-selection').onclick = () => { selectedFiles.clear(); renderSelection(); };
-async function markSelected(viewed) {
-    const captured = review, paths = [...selectedFiles].filter(path => captured?.files.some(file => file.path === path));
-    if (!captured || !paths.length || bulkViewing) return;
-    bulkViewing = true; renderSelection();
-    try {
-        const result = await api('viewed/batch', { key: captured.key, paths, viewed, source: captured.source, base: captured.base });
-        if (review !== captured) return;
-        const updated = new Set(result.paths); captured.files.forEach(file => { if (updated.has(file.path)) file.viewed = result.viewed; });
-        if (current) $('viewed').checked = captured.files.find(file => file.path === current.path)?.viewed === true;
-        renderFiles(); notice(`${result.paths.length} files marked ${viewed ? 'reviewed' : 'unreviewed'} · saved locally`);
-    } finally { bulkViewing = false; renderSelection(); }
-}
-$('mark-selected-reviewed').onclick = guard(() => markSelected(true));
-$('mark-selected-unreviewed').onclick = guard(() => markSelected(false));
 function renderFiles() {
     if (!review) return;
     const root = $('file-tree'), focused = document.activeElement?.dataset.reviewedPath, scroll = root.scrollTop; root.replaceChildren();
     const directories = new Map([['', root]]);
     const shown = visibleFiles(), ignored = review.files.filter(file => ignoreReasons(file).length).length;
-    if (!config?.reviewFilters?.showIgnored) for (const path of selectedFiles) if (ignoreReasons({ path }).length) selectedFiles.delete(path);
     for (const file of shown) {
         const parts = file.path.split('/'); let path = '', parent = root;
         for (const directory of parts.slice(0, -1)) {
             path = path ? `${path}/${directory}` : directory;
             if (!directories.has(path)) {
                 const details = element('details'); details.open = true; const items = element('div'); items.style.paddingLeft = '10px';
-                const folder = path, checkbox = element('input'); checkbox.type = 'checkbox'; checkbox.dataset.selectionFolder = folder; checkbox.setAttribute('aria-label', `Select folder ${folder}`);
-                checkbox.onclick = event => event.stopPropagation();
-                checkbox.onchange = () => { visibleFiles().filter(file => file.path.startsWith(`${folder}/`)).forEach(file => { if (checkbox.checked) selectedFiles.add(file.path); else selectedFiles.delete(file.path); }); renderSelection(); };
-                append(details, append(element('summary'), checkbox, element('span', ` ${directory}`)), items); parent.append(details); directories.set(path, items);
+                append(details, append(element('summary'), element('span', directory)), items); parent.append(details); directories.set(path, items);
             }
             parent = directories.get(path);
         }
@@ -183,13 +148,10 @@ function renderFiles() {
         button.dataset.path = file.path;
         append(button, element('span', parts.at(-1), 'file-name'), element('span', pathChange(file)?.label || file.status[0], 'file-status'));
         button.onclick = guard(() => openFile(file));
-        const checkbox = element('input'); checkbox.type = 'checkbox'; checkbox.checked = selectedFiles.has(file.path);
-        checkbox.setAttribute('aria-label', `Select ${file.path} for review or Copilot`); checkbox.dataset.selectionPath = file.path;
-        checkbox.onchange = () => { if (checkbox.checked) selectedFiles.add(file.path); else selectedFiles.delete(file.path); renderSelection(); };
         const reviewed = element('input'); reviewed.type = 'checkbox'; reviewed.checked = file.viewed === true; reviewed.dataset.reviewedPath = file.path;
-        reviewed.disabled = viewing.has(file.path); reviewed.setAttribute('aria-label', `Reviewed ${file.path}`); reviewed.title = 'Mark this file reviewed (saved locally; separate from selection)';
+        reviewed.disabled = viewing.has(file.path); reviewed.setAttribute('aria-label', `Reviewed ${file.path}`); reviewed.title = 'Mark this file reviewed (saved locally)';
         reviewed.onchange = guard(() => markFileViewed(file.path, reviewed.checked));
-        parent.append(append(element('div', null, 'file-row'), checkbox, button, reviewed));
+        parent.append(append(element('div', null, 'file-row'), reviewed, button));
     }
     const reviewable = review.files.filter(file => !ignoreReasons(file).length);
     $('progress').textContent = `${reviewable.filter(file => file.viewed).length} / ${reviewable.length}${ignored ? ` · ${ignored} ignored` : ''}`;
@@ -203,7 +165,7 @@ function renderFiles() {
     if (current) $('viewed').disabled = viewing.has(current.path);
     root.scrollTop = scroll;
     if (focused) [...root.querySelectorAll('[data-reviewed-path]')].find(node => node.dataset.reviewedPath === focused)?.focus({ preventScroll: true });
-    renderDependencySummary(); renderSelection();
+    renderDependencySummary();
 }
 function setEnabled(value) { for (const id of ['viewed', 'comment', 'copilot', 'previous-file', 'next-file', 'previous-diff', 'next-diff']) $(id).disabled = !value; $('roslyn').disabled = !value || current?.language !== 'csharp' || !config?.roslyn.available; }
 const editorReady = new Promise((resolve, reject) => {
@@ -318,10 +280,10 @@ $('publish').onclick = guard(async () => { const pr = review.pr, key = review.ke
     if (!confirm(`Publish ${plan.payloads.length} comments to Azure DevOps PR #${plan.prId}, iteration ${plan.iteration}? Live posting has not been tested.\n\n${locations}`)) return;
     const result = await api('publish', { key, planToken: plan.planToken }); notice(`Published ${result.published.length} inline comments.`); if (review?.key === key) await openReview(pr);
 } catch (error) { if (review?.key === key) await openReview(pr).catch(() => {}); throw error; } finally { renderDiscussion(); } });
-$('copilot').onclick = guard(() => { selection = selectedRange(); $('copilot-scope').value = selectedFiles.size ? 'files' : 'range'; $('copilot-dialog').showModal(); });
+$('copilot').onclick = guard(() => { selection = selectedRange(); $('copilot-scope').value = 'range'; $('copilot-dialog').showModal(); });
 $('cancel-copilot').onclick = () => $('copilot-dialog').close();
 $('copilot-form').onsubmit = guard(async event => { event.preventDefault(); const scope = $('copilot-scope').value;
-    const input = scope === 'files' ? { key: selection.key, paths: [...selectedFiles] } : scope === 'file' ? { ...selection, startLine: undefined, endLine: undefined } : selection;
+    const input = scope === 'file' ? { ...selection, startLine: undefined, endLine: undefined } : selection;
     await api('copilot', { ...input, instruction: $('copilot-instruction').value }); $('copilot-dialog').close(); notice('Selection sent to Copilot for read-only analysis.'); });
 $('roslyn').onclick = guard(async () => {
     const captured = review, file = current, model = models[1], sequence = navigation;
