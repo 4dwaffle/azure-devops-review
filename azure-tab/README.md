@@ -39,7 +39,7 @@ Live read-only preflight on PR 2620 verified the immutable common base, current 
 
 ## PR 2620 performance
 
-A fresh live API snapshot and real headless Edge run measured **38.37 seconds to an interactive review**, including 3,966 API calls and 1,587 immutable files; no file reads failed. Full conservative analysis took **81.91 seconds total**. Subsequent file navigation measured 202 ms, and dependency inspection rendered 44 bounded diagrams. This measures the local built tab with live read-only Azure requests; it is not a deployed Marketplace/CDN performance result.
+A fresh live API snapshot and real headless Edge run measured **38.01 seconds to an interactive review**, including 3,966 API calls and 1,587 immutable files; no file reads failed. Full conservative analysis took **38.93 seconds total** after skipping incomplete namespace-binding batches (previously 81.91 seconds). Subsequent file navigation measured 191 ms, and dependency inspection rendered 44 bounded diagrams. This measures the local built tab with live read-only Azure requests; it is not a deployed Marketplace/CDN performance result.
 
 The PR still has **131 ignored files**. Its 1,491 C# files / 28.9 million source characters exceed complete browser rename-binding limits, and project-specific dependencies are unavailable. Consequently unresolved namespace/project rename references remain visible. Hiding the entire PR safely requires complete project/solution compiler context; the PR title or token substitutions are not sufficient proof. The under-minute result applies to interactive loading, not completed semantic filtering.
 

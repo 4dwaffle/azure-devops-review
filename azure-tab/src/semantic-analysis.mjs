@@ -25,7 +25,7 @@ export async function verifyEquivalence(files, classifications, pairs) {
  if(candidates.length<=250&&candidates.reduce((sum,file)=>sum+size(file),0)<=4000000)return verifyBatch(candidates,classifications,pairs);
  // Reference bindings require the complete changed-source context. Never pretend a truncated batch proves a rename.
  const byPath=new Map(classifications.map(value=>[value.path,value]));
- const eligible=candidates.filter(file=>byPath.get(file.path)?.formattingOnly||byPath.get(file.path)?.usingsOnly);
+ const eligible=candidates.filter(file=>{const change=byPath.get(file.path);return !change?.renameOnly&&(change?.formattingOnly||change?.usingsOnly);});
  const verified=[];let batch=[],characters=0;
  const flush=async()=>{if(batch.length)verified.push(...await verifyBatch(batch,classifications.map(value=>({...value,renameOnly:false})),[]));batch=[];characters=0;};
  for(const file of eligible){
