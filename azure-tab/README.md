@@ -1,5 +1,16 @@
 # Azure DevOps Filtered Review
 
+## Published update: 0.1.13
+
+Folder Reviewed checkboxes recursively update every non-ignored descendant, including collapsed and search-hidden files. Mixed states, atomic persistence and failed-save rollback are covered by real Edge regressions. Select contiguous code lines in either Monaco pane and use Add comment, Ctrl/Cmd+M or the editor context menu; drafts retain the exact side and range. Normal interactions remain inference-free.
+
+Marketplace validation completed on October 13, 2026, with availability still **Private (shared with 1)**. Reloading PR 2620 confirmed its installed tab uses the **0.1.13** CDN iframe without a reinstall. The deployed Edge CDN suite passed, verifying exact packaged UI bytes, analysis worker initialization and trusted semantic-equivalence regressions. The versioned package passed all 23 targeted tab tests, including actual Edge browser regressions, comment serialization, durable progress and VSIX asset validation.
+
+- Artifact: `artifacts/VaclavBerny.azure-filtered-review-0.1.13.vsix`
+- Size: **15,715,445 bytes**
+- SHA-256: `26FAB2262518BE8FE3D9FFF707C73EB1388E64BB4C9C70939F92B89DC1933790`
+- CDN: `https://vaclavberny.gallerycdn.vsassets.io/extensions/vaclavberny/azure-filtered-review/0.1.13/1791894095507`
+
 ## Published update: 0.1.12
 
 The Reviewed checkbox is the leftmost file-row control. File/folder multiselect, Select all and the bulk action toolbar are removed. Opening a file still does not mark it reviewed; progress persistence, failed-save rollback and keyboard navigation are unchanged. Editor-local Find is bundled: double-click a word and press Ctrl/Cmd+F to search the focused file pane.
