@@ -2,9 +2,11 @@
 
 Private Azure DevOps extension adding a **Filtered Review** pull-request tab beside the native **Files** tab. This does not replace or modify Azure's built-in Files component.
 
-## Submitted update: 0.1.10 (Marketplace verification pending)
+## Published update: 0.1.10
 
-Local tests passed: root **61 passed / 1 skipped**, tab **29 passed / 1 skipped**, including native companion integration and three real Edge suites. Native extension reload and the diagnostics RPC succeeded. After Microsoft sign-in was restored, the verified package below was uploaded to the existing extension. Marketplace reports **Verifying 0.1.10**; availability remains **Private (shared with 1)**. PR 2620's installed tab still loads the 0.1.9 CDN iframe. Publication and deployed 0.1.10 runtime verification are not yet confirmed.
+Local tests passed: root **61 passed / 1 skipped**, tab **29 passed / 1 skipped**, including native companion integration and three real Edge suites. Native extension reload and the diagnostics RPC succeeded. Marketplace verification completed on October 13, 2026; availability remains **Private (shared with 1)**. PR 2620's installed tab was reloaded and confirmed to use the **0.1.10** CDN iframe without a reinstall.
+
+The deployed Edge CDN test passed: the UI matches the packaged production bytes, the analysis worker initializes, WASM/Roslyn runs the shipped trusted analyzer, and namespace/move/caller-information regressions pass. Separate byte comparisons confirmed that deployed `index.html`, `app.js`, and `analysis-worker.js` exactly match the local package, including the companion integration. This verifies release deployment, not a complete compiler profile or native companion verification for PR 2620.
 
 - Artifact: `artifacts/VaclavBerny.azure-filtered-review-0.1.10.vsix`
 - Size: **15,695,054 bytes**
@@ -64,7 +66,7 @@ The existing rename filter hides pure `ProjectReference Include` path propagatio
 
 ## Optional namespace propagation filter
 
-The upcoming 0.1.10 local Edge run against PR 2620's **cached immutable snapshot** measured **1,281 ignored / 59 visible** with namespace text filtering enabled (0.1.9: 1,243 / 97). Analysis found 25 project-reference propagation files and 1,176 namespace-only candidates. Interactive rendering took 0.58 seconds, completed analysis 18.70 seconds, and navigation 66 ms, with 44 diagrams and no browser errors. These cached timings exclude Azure loading and are not deployed-CDN performance. Both reported example files are now classified appropriately; the moved entity still requires the explicit text-only namespace preference.
+The 0.1.10 local Edge run against PR 2620's **cached immutable snapshot** measured **1,281 ignored / 59 visible** with namespace text filtering enabled (0.1.9: 1,243 / 97). Analysis found 25 project-reference propagation files and 1,176 namespace-only candidates. Interactive rendering took 0.58 seconds, completed analysis 18.70 seconds, and navigation 66 ms, with 44 diagrams and no browser errors. These cached timings exclude Azure loading and are not deployed-CDN performance. Both reported example files are now classified appropriately; the moved entity still requires the explicit text-only namespace preference.
 
 Enable **Ignore filters → Namespace rename propagation (text-only)** to hide exact namespace substitutions, including namespace-only edits in moved/renamed declaration files. This independent preference is **off by default**, including for existing users. The popover shows the inferred old → new namespace mapping and candidate count. When disabled, a visible notice links to this setting without silently changing preferences. Identical warning pragmas can be excluded from tokenization only while retaining exact raw-source replacement checks, covering the moved `SchedulePartEntity.cs`. Changed pragmas and conditional directives remain unsupported. Show ignored reveals suppressed files without marking them reviewed or affecting comments, drafts or progress.
 
