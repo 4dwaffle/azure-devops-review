@@ -59,7 +59,7 @@ The trusted shipped C# analyzer receives all PR text as base64-encoded data. Onl
 
 Assemblies, runtime, Comlink and Monaco workers are packaged locally. The organization's iframe/CSP must allow same-origin module workers and WASM. No SharedArrayBuffer or cross-origin isolation is required by the tested runtime. The desktop language-server executable is not used in the iframe.
 
-Marketplace version **0.1.5** is validated, and the existing organization's PR tab automatically points to its CDN without a reinstall. An actual Edge test against that CDN initialized the module worker and WASM, executed the shipped trusted analyzer, verified formatting/using/reference-rename candidates, kept the rename declaration visible, and rejected both a deliberately mislabeled behavior change and a renamed-file `CallerFilePath` using-change candidate. This verifies deployed compiler execution, not complete project context or the Azure-hosted iframe's policies.
+Marketplace version **0.1.6** is validated, and the existing organization's PR tab automatically points to its CDN without a reinstall. An actual Edge test against that CDN initialized the module worker and WASM and executed the shipped trusted analyzer on twelve fixtures. It verified formatting/using/reference-rename candidates, kept the rename declaration visible, and rejected a deliberately mislabeled behavior change and observable caller-information changes. Regression cases cover renamed-file `CallerFilePath`, `CallerLineNumber`, `CallerArgumentExpression`, constructor and attribute calls; unchanged caller information still permits a verified reference rename. This verifies deployed compiler execution, not complete project context or the Azure-hosted iframe's policies.
 
 ## Conservative classification
 
