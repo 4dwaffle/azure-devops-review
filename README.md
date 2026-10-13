@@ -94,6 +94,22 @@ The HTTP server binds only to `127.0.0.1` on an OS-selected port. API paths requ
 
 Run `npm test` in this directory. `REVIEW_BROWSER` may specify an alternate Edge/Chromium executable for browser tests. Tests use disposable local Git repositories and mock publishing; they never post comments to a real PR. Runtime canvas actions: `diagnostics`, `probe_roslyn`, `list_pull_requests`, and `open_pull_request`.
 
+## CI and automatic releases
+
+GitHub Actions **CI** validates pull requests targeting `main` (the repository's default branch), merge-queue groups, and manually requested runs. Windows runners use Node.js 24, the pinned .NET 10 SDK, and Microsoft Edge. Validation installs locked dependencies, builds the native companion, runs the canvas and Azure tab suites (including browser and native compiler tests), runs the browser Roslyn probe, and builds both release packages. Tests requiring a separately configured `REVIEW_ROSLYN` language server or live CDN deployment remain opt-in.
+
+To enforce the merge gate, configure a GitHub ruleset/branch protection rule for `main` requiring the **Validate and package** check and pull requests before merging. Workflow files alone do not prevent merges or direct pushes; administrators must enable that repository setting.
+
+**CD** runs on every push to `main`, including PR merges, and repeats the same validation before publishing a GitHub Release at that exact commit. Versions are `0.2.<CD workflow run number>` with tags `v0.2.<run number>`; failed runs may leave gaps, and reruns retain their original version. Runs are not canceled or grouped, so concurrent merges each receive a release. Keep the CD workflow's identity and version prefix stable to avoid reusing versions.
+
+Release assets include:
+
+- A self-contained Azure DevOps `.vsix`, with the release version embedded in its manifest. Upload it manually to your Azure DevOps publisher if desired; CD does not publish to the Marketplace or require a publisher token.
+- `azure-devops-review-canvas-<version>.zip`, containing the canvas source, pinned dependency manifests, UI, and upstream license files. Extract its `azure-devops-review` folder into your Copilot extensions directory, run `npm ci --omit=dev` there, and reload extensions. Node.js 24 is recommended. Dependencies are restored on installation rather than bundled; review state, credentials, test fixtures, and the experimental companion are excluded.
+- `SHA256SUMS.txt` for both packages.
+
+CI has read-only repository permissions; only the CD publishing job can write releases using the built-in `GITHUB_TOKEN`. No additional secrets are needed. Releases appear only after these workflows are merged into `main` and a CD run succeeds.
+
 ## Upstream reuse and licenses
 
 Microsoft's MIT-licensed [azure-devops-copilot-plugin](https://github.com/microsoft/azure-devops-copilot-plugin), pinned to revision `8f30ba3210758239be19e2143943e0830f07601a`, supplied the reusable PR normalization helpers in `reference/pull-request.mjs` and `reference/common.mjs`. `mapPullRequest` is imported directly, not just used as inspiration. Its original license is retained in `reference/LICENSE.txt`. The plugin's canvas approach informed the loopback architecture; this extension uses the current installed SDK canvas declarations and separately tested iteration-aware REST calls.
