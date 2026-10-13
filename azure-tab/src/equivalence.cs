@@ -9,6 +9,7 @@ using System.Collections.Generic;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
+using Microsoft.CodeAnalysis.Operations;
 using WasmSharp.Core.Services;
 
 // Only this shipped analyzer is executed. PR text is decoded as data and parsed/emitted, never loaded or invoked.
@@ -92,6 +93,46 @@ class ReviewEquivalence
         if (symbol is IParameterSymbol parameter) return "parameter:" + parameter.Ordinal + ":" + Identity(parameter.Type, renames, normalize);
         return symbol.Kind + ":" + symbol.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
     }
+    static List<IArgumentOperation> ImplicitArguments(SyntaxTree tree, SemanticModel model)
+    {
+        var arguments = new List<IArgumentOperation>();
+        var seen = new HashSet<IOperation>();
+        foreach (var node in tree.GetRoot().DescendantNodes())
+        {
+            if (!(node is InvocationExpressionSyntax || node is BaseObjectCreationExpressionSyntax
+                || node is ConstructorInitializerSyntax || node is ElementAccessExpressionSyntax
+                || node is AttributeSyntax || node.Kind().ToString() == "PrimaryConstructorBaseType")) continue;
+            var operation = model.GetOperation(node);
+            if (operation == null) continue;
+            var pending = new Stack<IOperation>(); pending.Push(operation);
+            while (pending.Count != 0)
+            {
+                var current = pending.Pop();
+                if (!seen.Add(current)) continue;
+                if (current is IArgumentOperation argument && argument.IsImplicit) arguments.Add(argument);
+                foreach (var child in current.ChildOperations.Reverse()) pending.Push(child);
+            }
+        }
+        return arguments;
+    }
+    static bool SameImplicitArguments(SyntaxTree before, SyntaxTree after, SemanticModel oldModel, SemanticModel newModel, Dictionary<INamedTypeSymbol, INamedTypeSymbol> renames)
+    {
+        var left = ImplicitArguments(before, oldModel); var right = ImplicitArguments(after, newModel);
+        if (left.Count != right.Count) return false;
+        for (int i = 0; i < left.Count; i++)
+        {
+            var a = left[i]; var b = right[i];
+            if (a.Parameter?.Ordinal != b.Parameter?.Ordinal || a.ArgumentKind != b.ArgumentKind
+                || Identity(a.Value.Type, renames, true) != Identity(b.Value.Type, renames, false)) return false;
+            // Caller information and optional defaults are observable even when all written names bind identically.
+            if (a.Value.ConstantValue.HasValue && b.Value.ConstantValue.HasValue)
+            {
+                if (!Equals(a.Value.ConstantValue.Value, b.Value.ConstantValue.Value)) return false;
+            }
+            else if (!(a.Value is IDefaultValueOperation && b.Value is IDefaultValueOperation)) return false;
+        }
+        return true;
+    }
     static bool SameBindings(SyntaxTree before, SyntaxTree after, CSharpCompilation left, CSharpCompilation right, Dictionary<INamedTypeSymbol, INamedTypeSymbol> renames)
     {
         SyntaxNode[] Names(SyntaxTree tree) => tree.GetRoot().DescendantNodes().Where(node =>
@@ -102,6 +143,7 @@ class ReviewEquivalence
         if (oldNodes.Length != newNodes.Length || before.GetRoot().DescendantNodes().OfType<IdentifierNameSyntax>().Any(n => n.Identifier.ValueText == "nameof" || n.Identifier.ValueText == "dynamic")
             || before.GetRoot().DescendantNodes().OfType<InvocationExpressionSyntax>().Any(n => n.Expression.ToString() == "nameof")) return false;
         var oldModel = left.GetSemanticModel(before); var newModel = right.GetSemanticModel(after); bool mapped = false;
+        if (!SameImplicitArguments(before, after, oldModel, newModel, renames)) return false;
         for (int i = 0; i < oldNodes.Length; i++)
         {
             var a = oldModel.GetSymbolInfo(oldNodes[i]); var b = newModel.GetSymbolInfo(newNodes[i]);

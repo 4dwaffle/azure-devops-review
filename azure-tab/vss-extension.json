@@ -1,7 +1,7 @@
 {
   "manifestVersion": 1,
   "id": "azure-filtered-review",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "name": "Filtered Review",
   "description": "PR review with local ignore filters, Monaco diffs, private progress and explicit inline comments.",
   "publisher": "VaclavBerny",
