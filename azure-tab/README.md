@@ -2,7 +2,7 @@
 
 ## Prepared 0.1.12 (not published)
 
-The Reviewed checkbox is the leftmost file-row control. File/folder multiselect, Select all and the bulk action toolbar are removed. Opening a file still does not mark it reviewed; progress persistence, failed-save rollback and keyboard navigation are unchanged. This package is built and browser-tested; the published Marketplace version remains 0.1.11.
+The Reviewed checkbox is the leftmost file-row control. File/folder multiselect, Select all and the bulk action toolbar are removed. Opening a file still does not mark it reviewed; progress persistence, failed-save rollback and keyboard navigation are unchanged. Editor-local Find is bundled: double-click a word and press Ctrl/Cmd+F to search the focused file pane. This package is built and browser-tested; the published Marketplace version remains 0.1.11.
 
 
 Private Azure DevOps extension adding a **Filtered Review** pull-request tab beside the native **Files** tab. This does not replace or modify Azure's built-in Files component.
@@ -56,7 +56,7 @@ Current PR discovery first checks SDK configuration, then the documented host na
 - **Dependencies** displays manifest declarations and explicit C# using directives independently of ignore filters, with owner-file navigation and an option to show unchanged connections. C# import edges are syntax-only, not resolved symbol dependencies. Unsupported source syntax is reported explicitly. Diagrams are bounded to 200 connections and 20 displayed warnings; complete immutable diffs remain available. This is not a full call graph or transitive dependency graph.
 - Existing file and general review comments are displayed as plain text. Azure system activity (such as branch updates) is hidden; human replies in mixed threads remain visible. Iteration context is available on hover rather than repeated headings. Current-iteration line links navigate the immutable diff; historical or out-of-range positions cannot navigate.
 - The embedded tab does not duplicate Azure’s PR title or state badges.
-- Shortcuts: `Ctrl+P` search, `J`/`K` next/previous file, `V` toggle viewed. Editor input keeps Monaco's own key handling. Next/previous diff buttons navigate changed hunks.
+- Shortcuts: `Ctrl+P` search, `J`/`K` next/previous file, `V` toggle viewed. In either editor pane, double-click a word and press `Ctrl+F` (`Cmd+F` on macOS) to search that string throughout the current file. `Enter`/`Shift+Enter` navigate matches; `Escape` closes Find. Find also works in inline layout and is bundled locally without inference. Editor input keeps Monaco's own key handling. Next/previous diff buttons navigate changed hunks.
 
 ## Inline comments and recovery
 

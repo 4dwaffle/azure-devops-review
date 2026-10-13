@@ -1,4 +1,5 @@
 import * as monaco from 'monaco-editor/esm/vs/editor/editor.api.js';
+import 'monaco-editor/esm/vs/editor/contrib/find/browser/findController.js';
 import 'monaco-editor/esm/vs/basic-languages/csharp/csharp.contribution.js';
 import 'monaco-editor/esm/vs/basic-languages/xml/xml.contribution.js';
 import {defaultFilters,normalizeFilters,ignoredReasons} from '../../analysis.mjs';
@@ -92,7 +93,7 @@ export async function start(connection,loadReview){
  function theme(){const style=getComputedStyle(document.body);const rgb=style.backgroundColor.match(/\d+/g)?.slice(0,3).map(Number)||[255,255,255];const background='#'+rgb.map(value=>value.toString(16).padStart(2,'0')).join('');const dark=rgb.reduce((sum,value)=>sum+value,0)<384;monaco.editor.defineTheme('azure-review',{base:dark?'vs-dark':'vs',inherit:true,rules:[],colors:{'editor.background':background,'editorGutter.background':background,'diffEditor.unchangedRegionBackground':background}});monaco.editor.setTheme('azure-review');}
  window.addEventListener('themeApplied',theme);
  function open(file){clearEditor();active=file;const parts=file.path.split('/');for(let i=1;i<parts.length;i++)collapsed.delete(parts.slice(0,i).join('/'));$('current-icon').replaceChildren(fileIcon(file.path));$('current-file').textContent=pathChange(file)?.paths||file.path;$('viewed').disabled=!file.fingerprint;$('viewed').checked=progress.viewed(file);
-  if(!editor){theme();editor=monaco.editor.createDiffEditor($('editor'),{readOnly:true,originalEditable:false,automaticLayout:true,renderSideBySide:sideBySide,useInlineViewWhenSpaceIsLimited:false,minimap:{enabled:false},scrollBeyondLastLine:false});new MutationObserver(theme).observe(document.documentElement,{attributes:true,attributeFilter:['style','class']});}
+  if(!editor){theme();editor=monaco.editor.createDiffEditor($('editor'),{readOnly:true,originalEditable:false,automaticLayout:true,renderSideBySide:sideBySide,useInlineViewWhenSpaceIsLimited:false,minimap:{enabled:false},scrollBeyondLastLine:false,find:{seedSearchStringFromSelection:'always',autoFindInSelection:'never'}});new MutationObserver(theme).observe(document.documentElement,{attributes:true,attributeFilter:['style','class']});}
   const language=file.path.endsWith('.cs')?'csharp':/\.(json|jsonc)$/.test(file.path)?'json':/\.(csproj|props|targets|xml|resx)$/.test(file.path)?'xml':undefined;
   const before=file.error?file.error:file.binary?'Binary or non-regular Git object — use Azure native Files to inspect.':file.original;const after=file.error?file.error:file.binary?'Binary or non-regular Git object — use Azure native Files to inspect.':file.modified;
   models=[monaco.editor.createModel(before,language),monaco.editor.createModel(after,language)];editor.setModel({original:models[0],modified:models[1]});

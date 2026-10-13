@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
 import { chromium } from 'playwright-core';
 import { startServer } from '../server.mjs';
+import { verifyEditorFind } from './editor-find.mjs';
 const executablePath = process.env.REVIEW_BROWSER || 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe';
 test('real Monaco worker, 70-file navigation, selection sides, drafts and zero implicit inference', { skip: !existsSync(executablePath), timeout: 90000 }, async () => {
     const files = Array.from({ length: 70 }, (_, index) => ({ path: `Folder${Math.floor(index / 10)}/File${index}.cs`, oldPath: `Folder${Math.floor(index / 10)}/File${index}.cs`, status: 'M', fingerprint: String(index), viewed: false }));
@@ -32,6 +33,8 @@ test('real Monaco worker, 70-file navigation, selection sides, drafts and zero i
         const initial = await page.evaluate(() => window.reviewCanvasDiagnostics());
         assert.equal(initial.monacoLoaded, true); assert.equal(initial.diffEditorReady, true); assert.equal(initial.workerVerified, true, JSON.stringify({ initial, consoleMessages, errors }));
         assert.equal(await page.locator('button.file').count(), 70); assert.equal(initial.modelCount, 2); assert.equal(initial.changedLines, 1); assert.ok(initial.workerCount > 0);
+        await verifyEditorFind(page, '#diff');
+        assert.equal(inference, 0, 'Editor Find never invokes Copilot');
         const reviewed = page.getByRole('checkbox', { name: 'Reviewed Folder0/File0.cs', exact: true });
         assert.equal(await reviewed.isChecked(), false, 'Opening does not mark reviewed');
         await reviewed.check(); await page.waitForFunction(() => document.getElementById('progress').textContent === '1 / 70');

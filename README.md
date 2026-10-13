@@ -58,6 +58,7 @@ These graphs describe **manifest declarations and explicit imports in changed so
 | Shortcut | Action |
 | --- | --- |
 | Ctrl/Cmd+P | Focus changed-file filter |
+| Ctrl/Cmd+F (editor) | Search the current file in the focused diff pane; double-click a word first to prefill Find. Enter/Shift+Enter navigate matches; Escape closes Find. |
 | Alt+Up / Alt+Down | Previous / next filtered file |
 | F8 / Shift+F8 | Next / previous diff hunk |
 | V (outside text inputs/editors) | Toggle file viewed |

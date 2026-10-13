@@ -174,7 +174,7 @@ const editorReady = new Promise((resolve, reject) => {
     window.require(['vs/editor/editor.main'], () => {
         try {
             monacoLoaded = true;
-            diff = monaco.editor.createDiffEditor($('diff'), { readOnly: true, originalEditable: false, renderSideBySide: true, useInlineViewWhenSpaceIsLimited: false, automaticLayout: true, minimap: { enabled: false }, scrollBeyondLastLine: false, renderIndicators: true, diffWordWrap: 'off' });
+            diff = monaco.editor.createDiffEditor($('diff'), { readOnly: true, originalEditable: false, renderSideBySide: true, useInlineViewWhenSpaceIsLimited: false, automaticLayout: true, minimap: { enabled: false }, scrollBeyondLastLine: false, renderIndicators: true, diffWordWrap: 'off', find: { seedSearchStringFromSelection: 'always', autoFindInSelection: 'never' } });
             watchAppTheme(monaco, diff);
             diff.getOriginalEditor().onDidFocusEditorText(() => activeSide = 'left');
             diff.getModifiedEditor().onDidFocusEditorText(() => activeSide = 'right');
