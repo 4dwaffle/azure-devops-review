@@ -19,9 +19,10 @@ test('Deployed CDN: module worker, WASM and trusted semantic equivalence analyze
     {path:'Format.cs',original:'class F {}',modified:'class F { }',formattingOnly:true},
     {path:'Using.cs',original:'using System; class U {}',modified:'class U {}',usingsOnly:true},
     {path:'Behavior.cs',original:'class B { int M()=>1; }',modified:'class B { int M()=>2; }',formattingOnly:true},
+    {path:'Moved.cs',oldPath:'Original.cs',original:'using System; using System.Runtime.CompilerServices; class M { static string P([CallerFilePath] string path="")=>path; static string Value()=>P(); }',modified:'using System.Runtime.CompilerServices; class M { static string P([CallerFilePath] string path="")=>path; static string Value()=>P(); }',usingsOnly:true},
    ];
    const literal=value=>'D("'+btoa(value)+'")';
-   const input='var files = new File[] {'+files.map(file=>'new File {path='+literal(file.path)+',original='+literal(file.original)+',modified='+literal(file.modified)+',formattingOnly='+!!file.formattingOnly+',usingsOnly='+!!file.usingsOnly+',renameOnly='+!!file.renameOnly+'}').join(',')+'}; var pairs = new Pair[] {new Pair {ns='+literal('')+',from='+literal('Old')+',to='+literal('New')+',kind='+literal('type')+'}};';
+   const input='var files = new File[] {'+files.map(file=>'new File {path='+literal(file.path)+',oldPath='+literal(file.oldPath||file.path)+',original='+literal(file.original)+',modified='+literal(file.modified)+',formattingOnly='+!!file.formattingOnly+',usingsOnly='+!!file.usingsOnly+',renameOnly='+!!file.renameOnly+'}').join(',')+'}; var pairs = new Pair[] {new Pair {ns='+literal('')+',from='+literal('Old')+',to='+literal('New')+',kind='+literal('type')+'}};';
    const response=await fetch('./equivalence.cs');if(!response.ok)throw new Error('Deployed analyzer unavailable');
    const source=(await response.text()).replace('__REVIEW_DATA__',input);
    const compilation=await runtime.createCompilationAsync(source);
@@ -29,7 +30,8 @@ test('Deployed CDN: module worker, WASM and trusted semantic equivalence analyze
   });
   assert.equal(result.success,true,JSON.stringify(result));assert.equal(result.stdErr,'');assert.deepEqual(errors,[]);
   const rows=new Map(result.stdOut.trim().split('\n').map(line=>{const [path,formatting,usings,rename]=line.trim().split('|');return [Buffer.from(path,'base64').toString('utf8'),{formatting,usings,rename}];}));
-  assert.equal(rows.size,5);
+  assert.equal(rows.size,6);
+  assert.deepEqual(rows.get('Moved.cs'),{formatting:'False',usings:'False',rename:'False'});
   assert.equal(rows.get('Origin.cs').rename,'False');
   assert.equal(rows.get('Reference.cs').rename,'True');
   assert.equal(rows.get('Format.cs').formatting,'True');

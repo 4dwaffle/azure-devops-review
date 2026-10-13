@@ -28,7 +28,10 @@ export function changedFiles(changes) {
   if(files.has(path)) throw new Error(`Duplicate changed path ${path}`);
   files.set(path,{path,oldPath:status==='R'?oldPath:undefined,status,modeChanged:false});
  }
- return [...files.values()].sort((a,b)=>a.path.localeCompare(b.path));
+ const renameOrigins=new Map();
+ for(const file of files.values())if(file.status==='R')renameOrigins.set(file.oldPath,(renameOrigins.get(file.oldPath)||0)+1);
+ // Azure emits a delete for the original path alongside its rename destination.
+ return [...files.values()].filter(file=>file.status!=='D'||renameOrigins.get(file.path)!==1).sort((a,b)=>a.path.localeCompare(b.path));
 }
 export async function mapBounded(items, read, concurrency=4) {
  let cursor=0;await Promise.all(Array.from({length:Math.min(items.length,concurrency)},async()=>{while(cursor<items.length){const item=items[cursor++];await read(item);}}));

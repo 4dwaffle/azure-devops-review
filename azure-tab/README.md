@@ -39,9 +39,11 @@ Live read-only preflight on PR 2620 verified the immutable common base, current 
 
 ## PR 2620 performance
 
-A fresh live API snapshot and real headless Edge run measured **38.01 seconds to an interactive review**, including 3,966 API calls and 1,587 immutable files; no file reads failed. Full conservative analysis took **38.93 seconds total** after skipping incomplete namespace-binding batches (previously 81.91 seconds). Subsequent file navigation measured 191 ms, and dependency inspection rendered 44 bounded diagrams. This measures the local built tab with live read-only Azure requests; it is not a deployed Marketplace/CDN performance result.
+A fresh live API snapshot and real headless Edge run measured **34.67 seconds to an interactive review**, including 3,673 API calls and 1,340 immutable files; no file reads failed. Full conservative analysis took **35.45 seconds total**. Subsequent file navigation measured 189 ms, and dependency inspection rendered 44 bounded diagrams. This measures the local built tab with live read-only Azure requests; it is not a deployed Marketplace/CDN performance result.
 
-The PR still has **131 ignored files**. Its 1,491 C# files / 28.9 million source characters exceed complete browser rename-binding limits, and project-specific dependencies are unavailable. Consequently unresolved namespace/project rename references remain visible. Hiding the entire PR safely requires complete project/solution compiler context; the PR title or token substitutions are not sufficient proof. The under-minute result applies to interactive loading, not completed semantic filtering.
+Azure's diff listed 247 original-path deletions alongside their rename destinations. Unique rename/deletion pairs now appear once as a rename, avoiding duplicate review and original compilation input. Ambiguous multiple destinations and unrelated deletions remain visible. The previous 1,587-file benchmark counted these duplicates.
+
+The normalized PR has **80 ignored files / 1,260 visible files**; previously 51 of those redundant deletion rows contributed to the ignored count. Its 1,273 C# files / 21.6 million source characters exceed complete browser rename-binding limits, and project-specific dependencies are unavailable. Consequently unresolved namespace/project rename references remain visible. Hiding the entire PR safely requires complete project/solution compiler context; the PR title or token substitutions are not sufficient proof. The under-minute result applies to interactive loading, not completed semantic filtering.
 
 ## Automatic browser Roslyn verification
 
@@ -49,7 +51,7 @@ There is no diagnostics button. Lexical analysis proposes C# formatting, using-d
 
 The trusted shipped C# analyzer receives all PR text as base64-encoded data. Only that analyzer is executed; PR code is parsed, bound and emitted in memory, never loaded or invoked.
 
-- Formatting/using-only candidates are compiled as libraries with packaged references. All emitted assembly bytes must match except the random module GUID and PE timestamp. IL, metadata, attributes and caller-info constants remain part of the comparison.
+- Formatting/using-only candidates are compiled as libraries with packaged references. All emitted assembly bytes must match except the random module GUID and PE timestamp. IL, metadata, attributes and caller-info constants remain part of the comparison. Original snapshots use their original rename paths, so observable `CallerFilePath` changes cannot be hidden as formatting/using equivalence.
 - Repeated type- and namespace-rename candidates require both changed-file snapshots to compile and each changed identifier to bind to the mapped old/new type. Unchanged name/type bindings must also agree under that mapping. Declaration origins remain visible. This is reference-binding verification, not a claim that the renamed type itself preserves behavior.
 - Syntax errors, preprocessor directives, missing references, ambiguous/shadowed renames and observable nameof rename changes are not verified. Unknown files stay visible. Worker/runtime failures and a 60-second analysis timeout keep unverified candidates visible. Complete rename-binding contexts are limited to 250 C# files / 4 million source characters; larger PRs use bounded 50-file / 4-million-character formatting/using batches. Unverified large-context renames stay visible rather than hiding files based on names alone.
 

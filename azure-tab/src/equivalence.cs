@@ -14,7 +14,7 @@ using WasmSharp.Core.Services;
 // Only this shipped analyzer is executed. PR text is decoded as data and parsed/emitted, never loaded or invoked.
 class ReviewEquivalence
 {
-    class File { public string path, original, modified; public bool formattingOnly, usingsOnly, renameOnly; }
+    class File { public string path, oldPath, original, modified; public bool formattingOnly, usingsOnly, renameOnly; }
     class Pair { public string ns, from, to, kind; }
     static Pair[] namespacePairs = Array.Empty<Pair>();
     static string NormalizeNamespace(string name)
@@ -124,7 +124,7 @@ class ReviewEquivalence
     public static void Main(string[] args)
     {
         __REVIEW_DATA__
-        var before = files.Select(f => Parse(f.original, f.path)).ToArray();
+        var before = files.Select(f => Parse(f.original, string.IsNullOrEmpty(f.oldPath) ? f.path : f.oldPath)).ToArray();
         var after = files.Select(f => Parse(f.modified, f.path)).ToArray();
         var oldCompilation = Compile(before); var newCompilation = Compile(after);
         bool contextValid = !before.Any(Unsupported) && !after.Any(Unsupported) && !Errors(oldCompilation) && !Errors(newCompilation);
