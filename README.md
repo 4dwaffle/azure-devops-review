@@ -6,6 +6,8 @@ A user-scoped, local-first pull-request review surface for GitHub Copilot CLI's 
 
 This extension is installed under `%USERPROFILE%\.copilot\extensions\azure-devops-review` (or `$COPILOT_HOME\extensions\azure-devops-review`). It is available across repositories on this machine. It does not modify the repository or register an external web service.
 
+An experimental [local compiler companion](companion/README.md) is available for the separate **Filtered Review Azure tab**. It uses explicitly trusted complete compiler profiles and immutable Git sources, never executes PR build logic, and keeps browser-only verification as the fallback. It is not automatically connected to this canvas.
+
 Prerequisites: the Copilot Canvas extension runtime, Node.js, Git, and an authenticated Azure CLI account with access to the Azure DevOps organization. Authentication uses `az account get-access-token` for resource `499b84ac-1321-427f-aa17-267ca6975798`. Access tokens remain in provider memory and are never sent to the browser or written to review state. If the Azure CLI executable is not discoverable, set `AZURE_CLI_PATH` to its absolute executable path before starting Copilot.
 
 Dependencies are pinned in `package-lock.json`. For reinstalling, run `npm ci` in the extension directory, then reload extensions. The Copilot SDK is provided by the runtime; do not install a separate SDK dependency.

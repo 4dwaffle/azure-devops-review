@@ -4,11 +4,11 @@ Private Azure DevOps extension adding a **Filtered Review** pull-request tab bes
 
 ## Prepared update: 0.1.10 (not published)
 
-Local tests and packaging passed: root **56 passed / 1 skipped**, tab **26 passed / 1 skipped**, including both real Edge suites. Native extension reload and the diagnostics RPC succeeded. Marketplace currently redirects to Microsoft sign-in, so publishing and deployed-CDN verification are blocked; 0.1.9 remains the published version.
+Local tests passed: root **61 passed / 1 skipped**, tab **29 passed / 1 skipped**, including native companion integration and three real Edge suites. Native extension reload and the diagnostics RPC succeeded. Marketplace currently redirects to Microsoft sign-in, so publishing and deployed-CDN verification are blocked; 0.1.9 remains the published version.
 
 - Artifact: `artifacts/VaclavBerny.azure-filtered-review-0.1.10.vsix`
-- Size: **15,693,431 bytes**
-- SHA-256: `E1FDC4D5F1E4D12A66051BF92F2004FEAC8B96430D0383AFC5DD5F3D92F192FB`
+- Size: **15,695,054 bytes**
+- SHA-256: `D8636193B9F1907EA5CB33D2D245CA88834E522A09E4A77582F5B60687868AE5`
 - Package identity: **0.1.10**; all **212 addressable files** and **213 VSIX asset declarations** are present.
 
 ## Build and install
@@ -70,7 +70,13 @@ Enable **Ignore filters → Namespace rename propagation (text-only)** to hide e
 
 Mappings require matching namespace/type declarations and reject conflicts. Candidates must pass both token comparison and exact source-text replacement. If the complete body cannot be tokenized, a validated leading using-directive header can instead be compared while requiring the entire remaining body to be byte-identical. This covers import-only changes in files such as `UpdateMachineUseCase.cs` containing unchanged interpolated strings, directives or large bodies. Mixed edits, changed literals/comments, mode changes, read errors, ambiguous mappings and unsupported changes outside that header remain visible. Analysis and diagrams run in the worker; toggling the filter is local and inference-free, requires no new API reads, and works even if Roslyn is unavailable. It is a text-only policy, **not compiler equivalence**: runtime binding, reflection, `nameof` and caller-information effects are not verified. Review namespace origins and dependency diagrams before enabling it. Existing compiler-verified rename filtering is unchanged.
 
-With the 0.1.9 header-aware classifier, PR 2620's saved immutable snapshot has **1,163 namespace-only candidates**, including the actual `UpdateMachineUseCase.cs`. A fresh live read-only API benchmark confirmed **1,243 ignored / 97 visible**, **18.92 seconds to interactive** (previously 41.36), **38.13 seconds total background analysis**, 57 ms navigation, 44 diagrams, and zero file/browser errors. Immutable blob contents are reused within each load, configuration discovery checks both snapshots' recursive trees before requesting existing ancestors (truncated trees retain conservative discovery), and eight file readers keep at most sixteen content requests in flight. The live run made **2,644 API calls** instead of 3,719. This measures the local production/test build with live Azure reads, not deployed-CDN performance. Existing ignore settings may overlap with text-only candidates; the actual rendered count is authoritative. Unsupported changes remain visible; the compiler companion is not implemented.
+With the 0.1.9 header-aware classifier, PR 2620's saved immutable snapshot has **1,163 namespace-only candidates**, including the actual `UpdateMachineUseCase.cs`. A fresh live read-only API benchmark confirmed **1,243 ignored / 97 visible**, **18.92 seconds to interactive** (previously 41.36), **38.13 seconds total background analysis**, 57 ms navigation, 44 diagrams, and zero file/browser errors. Immutable blob contents are reused within each load, configuration discovery checks both snapshots' recursive trees before requesting existing ancestors (truncated trees retain conservative discovery), and eight file readers keep at most sixteen content requests in flight. The live run made **2,644 API calls** instead of 3,719. This measures the local production/test build with live Azure reads, not deployed-CDN performance. Existing ignore settings may overlap with text-only candidates; the actual rendered count is authoritative. Unsupported changes remain visible. The experimental compiler companion described below was implemented later; this benchmark did not use it.
+
+## Optional local compiler companion
+
+**Ignore filters → Local compiler companion** accepts a private loopback capability URL, or an empty value to disable it. The companion is experimental and off by default. See the [setup and complete trusted profile contract](../companion/README.md). It compiles immutable sources and pinned references using SDK Roslyn without executing PR project files, MSBuild or source generators. Browser/native verification runs concurrently; inaccessible endpoints, stale snapshots, unsupported options and unresolved contexts never hide additional files.
+
+A real Edge test verifies a synthetic 256-file PR beyond browser binding limits: **252 safe reference renames ignored / 4 origin, caller-info and mixed-edit files visible**. HTTPS-to-loopback access also works inside a tested cross-origin iframe after browser local-network permission; permission denial preserves visibility. This is not live Azure-host CSP/Permissions Policy verification. **PR 2620 has no trusted complete compiler profile yet and has not been verified with this companion.** The browser sends identities and content hashes only, not code or local paths. Normal review interactions remain inference-free.
 
 ## Automatic browser Roslyn verification
 

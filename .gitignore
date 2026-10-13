@@ -5,10 +5,15 @@ artifacts/
 node_modules/
 dist/
 dist-test/
+dist-companion-test/
 build/
 *.vsix
 azure-tab/vss-extension.package.json
 browser-roslyn/results.json
+companion/bin/
+companion/obj/
+companion/*.local.json
+companion/profiles/
 
 # Local credentials and machine-specific files
 .env

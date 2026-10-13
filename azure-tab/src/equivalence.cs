@@ -10,13 +10,17 @@ using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Operations;
+#if !NATIVE_COMPANION
 using WasmSharp.Core.Services;
+#endif
 
 // Only this shipped analyzer is executed. PR text is decoded as data and parsed/emitted, never loaded or invoked.
-class ReviewEquivalence
+public class ReviewEquivalence
 {
+#if !NATIVE_COMPANION
     class File { public string path, oldPath, original, modified; public bool formattingOnly, usingsOnly, renameOnly; }
-    class Pair { public string ns, from, to, kind; }
+#endif
+    public class Pair { public string ns, from, to, kind; }
     static Pair[] namespacePairs = Array.Empty<Pair>();
     static string NormalizeNamespace(string name)
     {
@@ -37,6 +41,7 @@ class ReviewEquivalence
     static string D(string value) => Encoding.UTF8.GetString(Convert.FromBase64String(value));
     static string E(string value) => Convert.ToBase64String(Encoding.UTF8.GetBytes(value));
     static readonly CSharpParseOptions ParseOptions = new CSharpParseOptions(LanguageVersion.Latest);
+#if !NATIVE_COMPANION
     static readonly MetadataReference[] References = MetadataReferenceCache.MetadataReferences
         .Where(reference => reference.Display == null || !reference.Display.Contains("WasmSharp.Core"))
         .ToArray();
@@ -45,6 +50,7 @@ class ReviewEquivalence
         || tree.GetRoot().DescendantTrivia().Any(t => t.IsDirective);
     static CSharpCompilation Compile(IEnumerable<SyntaxTree> trees) =>
         CSharpCompilation.Create("ReviewSnapshot", trees, References, new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary).WithConcurrentBuild(false));
+#endif
     static bool Errors(CSharpCompilation compilation) => compilation.GetDiagnostics().Any(d => d.Severity == DiagnosticSeverity.Error);
     static byte[] Emit(CSharpCompilation compilation)
     {
@@ -67,12 +73,14 @@ class ReviewEquivalence
         Array.Clear(bytes, BitConverter.ToInt32(bytes, 0x3c) + 8, 4);
         return bytes;
     }
+#if !NATIVE_COMPANION
     static bool SameEmission(SyntaxTree before, SyntaxTree after)
     {
         var left = Emit(Compile(new[] { before }));
         var right = Emit(Compile(new[] { after }));
         return left != null && right != null && left.SequenceEqual(right);
     }
+#endif
     static string Identity(ISymbol symbol, Dictionary<INamedTypeSymbol, INamedTypeSymbol> renames, bool normalize)
     {
         if (symbol == null) return "";
@@ -163,6 +171,30 @@ class ReviewEquivalence
         }
         return mapped;
     }
+#if NATIVE_COMPANION
+    public static Dictionary<INamedTypeSymbol, INamedTypeSymbol> NativeRenameMap(CSharpCompilation before, CSharpCompilation after, Pair[] pairs)
+    {
+        namespacePairs = pairs.Where(pair => pair.kind == "namespace").ToArray();
+        var renames = new Dictionary<INamedTypeSymbol, INamedTypeSymbol>(SymbolEqualityComparer.Default);
+        foreach (var pair in pairs.Where(pair => pair.kind != "namespace"))
+        {
+            var prefix = string.IsNullOrEmpty(pair.ns) ? "" : pair.ns + ".";
+            var oldType = before.GetTypeByMetadataName(prefix + pair.from);
+            var newType = after.GetTypeByMetadataName(prefix + pair.to);
+            if (oldType != null && newType != null && oldType.TypeKind == newType.TypeKind) renames[oldType] = newType;
+        }
+        foreach (var oldType in namespacePairs.Length == 0 ? Enumerable.Empty<INamedTypeSymbol>() : Types(before.GlobalNamespace))
+        {
+            var name = MetadataName(oldType); var normalized = NormalizeNamespace(name);
+            if (normalized == name) continue;
+            var newType = after.GetTypeByMetadataName(normalized);
+            if (newType != null && oldType.TypeKind == newType.TypeKind) renames[oldType] = newType;
+        }
+        return renames;
+    }
+    public static bool NativeRenameEquivalent(SyntaxTree before, SyntaxTree after, CSharpCompilation left, CSharpCompilation right, Dictionary<INamedTypeSymbol, INamedTypeSymbol> renames) =>
+        SameBindings(before, after, left, right, renames);
+#else
     public static void Main(string[] args)
     {
         __REVIEW_DATA__
@@ -220,4 +252,5 @@ class ReviewEquivalence
         }
 
     }
+#endif
 }
