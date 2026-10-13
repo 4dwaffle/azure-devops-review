@@ -57,6 +57,8 @@ The trusted shipped C# analyzer receives all PR text as base64-encoded data. Onl
 
 Assemblies, runtime, Comlink and Monaco workers are packaged locally. The organization's iframe/CSP must allow same-origin module workers and WASM. No SharedArrayBuffer or cross-origin isolation is required by the tested runtime. The desktop language-server executable is not used in the iframe.
 
+Marketplace version **0.1.4** is validated and installed in the existing organization with Code (read and write) permission; no reinstall was needed. An actual Edge test against its deployed CDN initialized the module worker and WASM, executed the shipped trusted analyzer, verified formatting/using/reference-rename candidates, kept the rename declaration visible, and rejected a deliberately mislabeled behavior change. This verifies deployed compiler execution, not complete project context or the Azure-hosted iframe's policies.
+
 ## Conservative classification
 
 Generated filename/header conventions are recognized. Relevant ancestor `.editorconfig` and root `.globalconfig` files are fetched from both immutable commits. If any explicit `generated_code` setting or uncertain configuration read is encountered, generated candidates stay visible with a warning rather than attempting incomplete EditorConfig semantics. This is more conservative than the desktop canvas's complete EditorConfig support. Designer/migration filters remain separately user-controlled.
@@ -66,5 +68,7 @@ This browser-only extension has no local Git/worktree access, Copilot CLI bridge
 ## Validation and third-party components
 
 `npm test` exercises pure pagination/progress logic and a real headless Microsoft Edge browser (`C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe`). Browser tests use a mocked Azure client and real Monaco, analysis workers and packaged Roslyn assets. Diff requests additionally pass through the installed `GitRestClient` serializer, asserting actual version query parameters rather than only mock argument shapes. Regression tests cover Azure’s string-valued change enums, nested tree navigation, header-free layout, automatic Roslyn filtering, missing references, changed bindings, caller line numbers, directives, shadowed renames, safe PR-data encoding and bounded large-context batches, namespace bindings, comment composition, reload persistence, uncertain-write reconciliation and archival. Both diff and comment requests are checked through the installed SDK serializer. Packaging tests verify Marketplace MIME metadata for every transitive JS/MJS module and WASM asset. No tests post live Azure comments or publish/install the extension.
+
+To additionally verify a published build, set `FILTERED_REVIEW_CDN_URL` to its exact publisher asset URI and run `node --test tests\cdn.test.mjs`. This opt-in test reads only the extension's public CDN assets and compiles canned fixtures; it never reads PR code, posts comments, or changes the installation. Normal test runs skip it.
 
 Uses Microsoft's MIT-licensed Azure DevOps extension SDK/API and Monaco, and Apache-2.0-licensed WasmSharp with .NET/Roslyn components. Bundled legal comments are retained; shipped vendor runtime files retain their original headers. See `dist/licenses` for included license notices.
