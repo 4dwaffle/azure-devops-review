@@ -1,0 +1,59 @@
+name: CD
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  version:
+    name: Allocate release version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Allocate stable version for this run
+        id: version
+        shell: bash
+        run: echo "version=0.2.${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+
+  validate:
+    name: Release validation
+    needs: version
+    uses: ./.github/workflows/ci.yml
+    with:
+      release-version: ${{ needs.version.outputs.version }}
+
+  release:
+    name: Publish GitHub Release
+    needs: [version, validate]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RELEASE_VERSION: ${{ needs.version.outputs.version }}
+      RELEASE_COMMIT: ${{ github.sha }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-packages
+          path: packages
+      - name: Publish validated packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="v${RELEASE_VERSION}"
+          # Re-running a successful publish replaces assets without creating another version.
+          if gh release view "$tag" > /dev/null 2>&1; then
+            gh release upload "$tag" packages/* --clobber
+          else
+            gh release create "$tag" packages/* \
+              --target "$RELEASE_COMMIT" \
+              --title "$tag" \
+              --generate-notes
+          fi

@@ -1,0 +1,109 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  merge_group:
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      release-version:
+        description: Version to embed in release packages
+        required: false
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate and package
+    runs-on: windows-2025
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      REVIEW_BROWSER: C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe
+      RELEASE_VERSION: ${{ inputs.release-version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            azure-tab/package-lock.json
+            browser-roslyn/package-lock.json
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: companion/global.json
+      - name: Check browser and compiler prerequisites
+        run: |
+          if (!(Test-Path $env:REVIEW_BROWSER)) { throw 'Microsoft Edge is required for browser validation.' }
+          $sdks = dotnet --list-sdks
+          if ($LASTEXITCODE -ne 0 -or !($sdks -match '^10\.')) { throw '.NET 10 SDK is required for native compiler tests.' }
+      - name: Install locked dependencies
+        run: |
+          npm ci --no-audit --no-fund
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm ci --prefix azure-tab --no-audit --no-fund
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm ci --prefix browser-roslyn --no-audit --no-fund
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Build native compiler companion
+        run: dotnet build companion\ReviewCompiler.csproj --configuration Release --nologo
+      - name: Test Copilot canvas
+        run: npm test
+      - name: Test Azure DevOps extension
+        run: npm test --prefix azure-tab
+      - name: Test browser Roslyn probe
+        run: npm test --prefix browser-roslyn
+      - name: Build Azure DevOps extension
+        run: npm run build --prefix azure-tab
+      - name: Prepare versioned canvas package and VSIX manifest
+        run: |
+          $manifestPath = 'azure-tab\vss-extension.package.json'
+          $manifest = Get-Content $manifestPath -Raw | ConvertFrom-Json
+          $version = if ($env:RELEASE_VERSION) { $env:RELEASE_VERSION } else { $manifest.version }
+          if ($version -notmatch '^\d+\.\d+\.\d+$') { throw 'Invalid release version.' }
+          $manifest.version = $version
+          $manifest | ConvertTo-Json -Depth 30 | Set-Content $manifestPath -Encoding utf8
+
+          $staging = 'build\release\azure-devops-review'
+          New-Item -ItemType Directory -Force $staging, 'build\packages' | Out-Null
+          # Explicit allowlist excludes review state, local configuration and credentials.
+          Copy-Item *.mjs $staging
+          Copy-Item package.json, package-lock.json, README.md $staging
+          Copy-Item ui, reference $staging -Recurse
+          $packagePath = Join-Path $staging 'package.json'
+          $package = Get-Content $packagePath -Raw | ConvertFrom-Json
+          $package | Add-Member -NotePropertyName version -NotePropertyValue $version -Force
+          $package | ConvertTo-Json -Depth 30 | Set-Content $packagePath -Encoding utf8
+          $lockPath = Join-Path $staging 'package-lock.json'
+          $lock = Get-Content $lockPath -Raw | ConvertFrom-Json -AsHashtable
+          $lock.version = $version
+          $lock.packages[''].version = $version
+          $lock | ConvertTo-Json -Depth 100 | Set-Content $lockPath -Encoding utf8
+          Compress-Archive -Path $staging -DestinationPath "build\packages\azure-devops-review-canvas-$version.zip"
+      - name: Package VSIX
+        working-directory: azure-tab
+        run: npx --no-install tfx extension create --manifest-globs vss-extension.package.json --output-path ..\build\packages --no-prompt
+      - name: Verify release packages
+        run: |
+          $vsix = @(Get-ChildItem build\packages\*.vsix)
+          $canvas = @(Get-ChildItem build\packages\*.zip)
+          if ($vsix.Count -ne 1 -or $canvas.Count -ne 1) { throw 'Expected one VSIX and one canvas archive.' }
+          Get-ChildItem build\packages\* | Get-FileHash -Algorithm SHA256 |
+            ForEach-Object { "$($_.Hash.ToLower())  $(Split-Path $_.Path -Leaf)" } |
+            Set-Content build\packages\SHA256SUMS.txt -Encoding ascii
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-packages
+          path: build/packages/*
+          if-no-files-found: error
+          retention-days: 7
