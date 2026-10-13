@@ -15,11 +15,20 @@ test('Deployed CDN: module worker, WASM and trusted semantic equivalence analyze
   const deployed=await page.evaluate(async()=>{
    const response=await fetch('./app.js');if(!response.ok)throw new Error('Deployed UI unavailable');
    const bytes=await response.arrayBuffer(),source=new TextDecoder().decode(bytes);
-   return {sha256:Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes)),byte=>byte.toString(16).padStart(2,'0')).join(''),moveLabel:source.includes('Moved + renamed'),filterLabel:source.includes('File moves and rename references')};
+   return {sha256:Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes)),byte=>byte.toString(16).padStart(2,'0')).join(''),moveLabel:source.includes('Moved + renamed'),filterLabel:source.includes('File moves and verified rename references'),namespaceLabel:source.includes('Namespace rename propagation (text-only)')};
   });
   const bundled=await readFile(new URL('../dist/app.js',import.meta.url));
   assert.equal(deployed.sha256,createHash('sha256').update(bundled).digest('hex'),'CDN must serve the exact packaged UI');
-  assert.equal(deployed.moveLabel,true);assert.equal(deployed.filterLabel,true);
+  assert.equal(deployed.moveLabel,true);assert.equal(deployed.filterLabel,true);assert.equal(deployed.namespaceLabel,true);
+  const propagation=await page.evaluate(()=>new Promise((resolve,reject)=>{
+   const worker=new Worker(new URL('./analysis-worker.js',location.href),{type:'module'}),timer=setTimeout(()=>{worker.terminate();reject(new Error('Deployed namespace worker timed out'));},15000);
+   worker.onerror=event=>{clearTimeout(timer);worker.terminate();reject(new Error(event.message));};worker.onmessage=event=>{clearTimeout(timer);worker.terminate();resolve(event.data);};
+   worker.postMessage({configurations:[],files:[{path:'New/Entity.cs',oldPath:'Old/Entity.cs',status:'R',original:'namespace Old.Data; public class Entity {}',modified:'namespace New.Data; public class Entity {}'},{path:'Reference.cs',status:'M',original:'using Old.Data; class R { Old.Data.Entity value; }',modified:'using New.Data; class R { New.Data.Entity value; }'},{path:'Mixed.cs',status:'M',original:'using Old.Data; class X { int x=1; }',modified:'using New.Data; class X { int x=2; }'}]});
+  }));
+  assert.equal(propagation.semanticPending,true);assert.deepEqual(propagation.namespaceRenames.map(pair=>[pair.from,pair.to]),[['Old.Data','New.Data']]);
+  const candidates=new Map(propagation.classifications.map(value=>[value.path,value]));
+  for(const path of ['New/Entity.cs','Reference.cs']){assert.equal(candidates.get(path).namespaceTextOnly,true);assert.equal(candidates.get(path).renameOnly,false);assert.notEqual(candidates.get(path).semanticVerified,true);}
+  assert.equal(candidates.get('Mixed.cs').namespaceTextOnly,false);
   const result=await page.evaluate(async()=>{
    const module=await import('./roslyn/index.js');
    const runtime=await module.WasmSharpModule.initializeAsync();

@@ -39,6 +39,31 @@ test('ambiguous namespaces and mappings stay visible; pure moves require mode-sa
     assert.equal(detectRenames([file('A.cs', 'class A {}', 'class A {}', { status: 'R100', blobUnchanged: false })]).classifications[0].renameOnly, false);
     assert.equal(detectRenames([file('A.cs', 'class A {}', 'class A {}', { status: 'R100', blobUnchanged: true })]).classifications[0].renameOnly, true);
 });
+test('namespace propagation is a separate opt-in exact-text filter including moved declarations', () => {
+    const origin = file('New/Entity.cs', 'namespace Old.Data; public class Entity {}', 'namespace New.Data; public class Entity {}', {status:'R',oldPath:'Old/Entity.cs'});
+    const reference = file('Reference.cs', 'using Old.Data; class R { Old.Data.Entity value; }', 'using New.Data; class R { New.Data.Entity value; }');
+    const rejected = [
+        file('Mixed.cs', 'using Old.Data; class X { int x=1; }', 'using New.Data; class X { int x=2; }'),
+        file('Literal.cs', 'using Old.Data; class X { string s="Old.Data"; }', 'using New.Data; class X { string s="New.Data"; }'),
+        file('Comment.cs', '// Old.Data\nusing Old.Data; class X {}', '// New.Data\nusing New.Data; class X {}'),
+        file('Whitespace.cs', 'using Old.Data; class X {}', 'using New.Data;  class X {}'),
+        file('Boundary.cs', 'using Old.DataExtra; class X {}', 'using New.DataExtra; class X {}'),
+        file('Directive.cs', '#if X\nusing Old.Data;\n#endif', '#if X\nusing New.Data;\n#endif'),
+        {...reference,path:'Mode.cs',modeChanged:true}, {...reference,path:'Error.cs',error:'Incomplete read'}
+    ];
+    const result = detectRenames([origin,reference,...rejected]);
+    const classes = new Map(result.classifications.map(value => [value.path,value]));
+    assert.equal(classes.get(origin.path).namespaceTextOnly,true);
+    assert.equal(classes.get(origin.path).renameOnly,false,'Existing declaration visibility is unchanged');
+    assert.equal(classes.get(reference.path).namespaceTextOnly,true);
+    const normal = normalizeFilters({renames:false}), enabled = normalizeFilters({renames:false,namespaceRenames:true});
+    assert.equal(normal.namespaceRenames,false); assert.equal(normalizeFilters({namespaceRenames:'true'}).namespaceRenames,false);
+    assert.deepEqual(ignoredReasons(origin,normal,classes.get(origin.path)),[]);
+    assert.deepEqual(ignoredReasons(origin,enabled,classes.get(origin.path)),['namespace rename propagation (text-only; not compiler-verified)']);
+    for (const f of rejected) { assert.notEqual(classes.get(f.path)?.namespaceTextOnly,true,f.path); assert.deepEqual(ignoredReasons(f,enabled,classes.get(f.path)),[],f.path); }
+    const ambiguous = detectRenames([origin,file('Other.cs','namespace Old.Data; class Other {}','namespace Other.Data; class Other {}'),reference]);
+    assert.ok(ambiguous.classifications.every(value => !value.namespaceTextOnly));
+});
 test('dependency diagrams capture packages, projects, metadata, conditions and central versions', () => {
     const before = '<Project><ItemGroup Condition="$(TargetFramework)==net8.0"><PackageReference Include="A" Version="1" PrivateAssets="all"/><ProjectReference Include="..\\Core\\Core.csproj"/></ItemGroup></Project>';
     const after = before.replace('Version="1"', 'Version="2"').replace('PrivateAssets="all"', 'PrivateAssets="none"');

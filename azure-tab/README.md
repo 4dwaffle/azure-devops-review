@@ -48,6 +48,14 @@ Azure's diff listed 247 original-path deletions alongside their rename destinati
 
 The normalized PR has **80 ignored files / 1,260 visible files**; previously 51 of those redundant deletion rows contributed to the ignored count. Its 1,273 C# files / 21.6 million source characters exceed complete browser rename-binding limits, and project-specific dependencies are unavailable. Consequently unresolved namespace/project rename references remain visible. Hiding the entire PR safely requires complete project/solution compiler context; the PR title or token substitutions are not sufficient proof. The under-minute result applies to interactive loading, not completed semantic filtering.
 
+## Optional namespace propagation filter
+
+Enable **Ignore filters → Namespace rename propagation (text-only)** to hide exact namespace substitutions, including namespace-only edits in moved/renamed declaration files. This independent preference is **off by default**, including for existing users. The popover shows the inferred old → new namespace mapping and candidate count. Show ignored reveals suppressed files without marking them reviewed or affecting comments, drafts or progress.
+
+Mappings require matching namespace/type declarations and reject conflicts. Candidates must pass both full token comparison and exact source-text replacement. Mixed edits, changed literals/comments, mode changes, read errors, ambiguous mappings, directives/interpolated syntax and oversized files remain visible. Analysis and diagrams run in the worker; toggling the filter is local and inference-free, requires no new API reads, and works even if Roslyn is unavailable. It is a text-only policy, **not compiler equivalence**: runtime binding, reflection, `nameof` and caller-information effects are not verified. Review namespace origins and dependency diagrams before enabling it. Existing compiler-verified rename filtering is unchanged.
+
+On PR 2620's saved immutable snapshot, this opt-in analysis found **1,006 namespace-only candidates**, including **144 moved/renamed files**, in 0.26 seconds. A fresh live read-only API benchmark with the option enabled confirmed **1,086 ignored / 254 visible**, **41.36 seconds to interactive**, **42.02 seconds total analysis**, 102 ms navigation, 44 diagrams, and zero file/browser errors. Existing ignore settings may overlap with text-only candidates; the actual rendered count is authoritative. Unsupported source remains visible; the compiler companion is not implemented.
+
 ## Automatic browser Roslyn verification
 
 There is no diagnostics button. Lexical analysis proposes C# formatting, using-directive and repeated-rename candidates; a dedicated worker automatically initializes pinned WasmSharp 0.10.2 and the packaged .NET/Roslyn runtime only when candidates exist. While verification is pending, files remain visible and navigation stays responsive. There is no inference or external code transport.

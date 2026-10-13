@@ -2,12 +2,12 @@ import { posix } from 'node:path';
 import { XMLParser, XMLValidator } from 'fast-xml-parser';
 import { generatedClassifier } from './generated-code.mjs';
 const operators = ['>>>=', '>>=', '<<=', '??=', '=>', '??', '?.', '::', '->', '++', '--', '&&', '||', '==', '!=', '<=', '>=', '+=', '-=', '*=', '/=', '%=', '&=', '|=', '^=', '<<', '>>', '..'];
-export const defaultFilters = { resources: false, formatting: false, usings: false, renames: true, generated: true, designers: true, migrations: true, patterns: [], showIgnored: false };
+export const defaultFilters = { resources: false, formatting: false, usings: false, renames: true, namespaceRenames: false, generated: true, designers: true, migrations: true, patterns: [], showIgnored: false };
 export function normalizeFilters(value = {}) {
     if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid review filters');
     const patterns = value.patterns ?? [];
     if (!Array.isArray(patterns) || patterns.length > 50 || patterns.some(pattern => typeof pattern !== 'string' || !pattern.trim() || pattern.length > 200 || /[\r\n\0\\]/.test(pattern))) throw new Error('Provide up to 50 relative ignore globs, using / separators and at most 200 characters each');
-    return { resources: value.resources === true, formatting: value.formatting === true, usings: value.usings === true, renames: value.renames !== false, generated: value.generated !== false, designers: value.designers !== false, migrations: value.migrations !== false, patterns: [...new Set(patterns.map(pattern => pattern.trim()))], showIgnored: value.showIgnored === true };
+    return { resources: value.resources === true, formatting: value.formatting === true, usings: value.usings === true, renames: value.renames !== false, namespaceRenames: value.namespaceRenames === true, generated: value.generated !== false, designers: value.designers !== false, migrations: value.migrations !== false, patterns: [...new Set(patterns.map(pattern => pattern.trim()))], showIgnored: value.showIgnored === true };
 }
 export function resourcePath(path) { return /\.(resx|resources|xlf|xliff|po|pot)$/i.test(path) || /(?:^|\/)[^/]*Resources(?:\.Designer)?\.cs$/i.test(path); }
 function tokens(text) {
@@ -84,6 +84,7 @@ export function ignoredReasons(file, filters, classification = {}) {
     if (!file.modeChanged && filters.formatting && classification.formattingOnly) reasons.push('formatting only');
     if (!file.modeChanged && filters.usings && classification.usingsOnly) reasons.push('using directives only');
     if (!file.modeChanged && filters.renames && classification.renameOnly) reasons.push(classification.fileRenameOnly ? 'file/path rename only' : 'detected type-rename references only');
+    if (!file.error && !file.binary && !file.modeChanged && filters.namespaceRenames && classification.namespaceTextOnly) reasons.push('namespace rename propagation (text-only; not compiler-verified)');
     for (const pattern of filters.patterns || []) if (posix.matchesGlob(file.path, pattern)) { reasons.push(`pattern: ${pattern}`); break; }
     return reasons;
 }
@@ -247,7 +248,7 @@ function namespaceRenames(prepared) {
     return {pairs:roots, origins};
 }
 export function detectRenames(files) {
-    const prepared = files.filter(file => /\.cs$/i.test(file.path) && !file.binary).map(file => ({ ...file, left: tokens(file.original), right: tokens(file.modified) }));
+    const prepared = files.filter(file => /\.cs$/i.test(file.path) && !file.binary && !file.error).map(file => ({ ...file, left: tokens(file.original), right: tokens(file.modified) }));
     const proposals = [], origins = new Set();
     const propose = (leftFile, rightFile, strict = false) => {
         const left = typeDeclarations(leftFile.left), right = typeDeclarations(rightFile.right);
@@ -288,21 +289,22 @@ export function detectRenames(files) {
         const fileRenameOnly = /^R100$/.test(file.status) && file.blobUnchanged === true && file.original === file.modified;
         const matches = file.left?.filter(token => replacements.has(token)) || [];
         const renameOnly = fileRenameOnly || !origins.has(file.path) && matches.length > 0 && file.original && file.modified && file.right && JSON.stringify(file.left.map(token => replacements.get(token) || token)) === JSON.stringify(file.right);
-        return { path: file.path, renameOnly: Boolean(renameOnly), fileRenameOnly, renames: renameOnly ? pairs.filter(pair => matches.includes(pair.from)) : [] };
+        return { path: file.path, renameOnly: Boolean(renameOnly), fileRenameOnly, namespaceTextOnly: false, renames: renameOnly ? pairs.filter(pair => matches.includes(pair.from)) : [] };
     });
     const namespaces = namespaceRenames(prepared);
     for (const file of prepared) {
-        if (!file.original || !file.modified || !file.left || !file.right || origins.has(file.path) || namespaces.origins.has(file.path)) continue;
-        let transformed = file.left;
+        if (!file.original || !file.modified || !file.left || !file.right || file.error || file.modeChanged) continue;
+        let transformed = file.left, text = file.original;
         const used = [];
         for (const pair of namespaces.pairs) {
             const next = replaceNamespace(transformed, pair.from, pair.to);
-            if (JSON.stringify(next) !== JSON.stringify(transformed)) used.push(pair);
+            if (JSON.stringify(next) !== JSON.stringify(transformed)) { used.push(pair); text = text.replaceAll(pair.from, pair.to); }
             transformed = next;
         }
         if (used.length && JSON.stringify(transformed) === JSON.stringify(file.right)) {
             const value = classifications.find(value => value.path === file.path);
-            value.renameOnly = true; value.namespaceRenameOnly = true; value.renames = used;
+            value.namespaceTextOnly = text === file.modified;
+            if (!origins.has(file.path) && !namespaces.origins.has(file.path)) { value.renameOnly = true; value.namespaceRenameOnly = true; value.renames = used; }
         }
     }
     return { pairs: [...pairs, ...namespaces.pairs], classifications, ambiguous: [...ambiguous] };

@@ -76,7 +76,7 @@ async function loadAnalysis() {
     const captured = review, sequence = ++analysisSequence;
     $('filter-status').textContent = 'Analyzing immutable changes locally…';
     try {
-        const filters = config.reviewFilters || {}, result = await api('analysis', { key: captured.key, classify: Boolean(filters.formatting || filters.usings || filters.renames !== false || filters.generated !== false) });
+        const filters = config.reviewFilters || {}, result = await api('analysis', { key: captured.key, classify: Boolean(filters.formatting || filters.usings || filters.renames !== false || filters.namespaceRenames || filters.generated !== false) });
         if (review !== captured || sequence !== analysisSequence) return;
         analysis = result; classifications = new Map(result.classifications.map(value => [value.path, value]));
         $('filter-status').textContent = 'Local analysis complete · no inference';
@@ -111,7 +111,7 @@ function renderDependencySummary() {
 }
 $('review-filters').onclick = () => {
     const filters = config.reviewFilters || {};
-    for (const name of ['resources', 'formatting', 'usings', 'renames', 'generated', 'designers', 'migrations']) $(`ignore-${name}`).checked = ['renames', 'generated', 'designers', 'migrations'].includes(name) ? filters[name] !== false : Boolean(filters[name]);
+    for (const name of ['resources', 'formatting', 'usings', 'renames', 'namespaceRenames', 'generated', 'designers', 'migrations']) $(`ignore-${name}`).checked = ['renames', 'generated', 'designers', 'migrations'].includes(name) ? filters[name] !== false : Boolean(filters[name]);
     $('ignore-patterns').value = (filters.patterns || []).join('\n'); $('show-ignored').checked = Boolean(filters.showIgnored);
     const pairs = analysis?.renames?.pairs || [];
     $('detected-renames').textContent = pairs.length ? `Detected types: ${pairs.map(pair => `${pair.namespace ? `${pair.namespace}.` : ''}${pair.from} → ${pair.to}`).join('; ')}` : 'No unambiguous type renames detected in analyzed files.';
@@ -120,7 +120,7 @@ $('review-filters').onclick = () => {
 $('cancel-filters').onclick = () => $('filters-dialog').close();
 $('filters-form').onsubmit = guard(async event => {
     event.preventDefault();
-    const filters = Object.fromEntries(['resources', 'formatting', 'usings', 'renames', 'generated', 'designers', 'migrations'].map(name => [name, $(`ignore-${name}`).checked]));
+    const filters = Object.fromEntries(['resources', 'formatting', 'usings', 'renames', 'namespaceRenames', 'generated', 'designers', 'migrations'].map(name => [name, $(`ignore-${name}`).checked]));
     filters.patterns = $('ignore-patterns').value.split('\n').map(value => value.trim()).filter(Boolean); filters.showIgnored = $('show-ignored').checked;
     config = await api('filters', { filters }); $('filters-dialog').close(); classifications.clear(); renderFiles(); await loadAnalysis();
     if (!current && visibleFiles().length) await openFile(visibleFiles()[0]);
