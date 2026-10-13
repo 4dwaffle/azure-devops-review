@@ -2,9 +2,9 @@
 
 Private Azure DevOps extension adding a **Filtered Review** pull-request tab beside the native **Files** tab. This does not replace or modify Azure's built-in Files component.
 
-## Prepared update: 0.1.10 (not published)
+## Submitted update: 0.1.10 (Marketplace verification pending)
 
-Local tests passed: root **61 passed / 1 skipped**, tab **29 passed / 1 skipped**, including native companion integration and three real Edge suites. Native extension reload and the diagnostics RPC succeeded. Marketplace currently redirects to Microsoft sign-in, so publishing and deployed-CDN verification are blocked; 0.1.9 remains the published version.
+Local tests passed: root **61 passed / 1 skipped**, tab **29 passed / 1 skipped**, including native companion integration and three real Edge suites. Native extension reload and the diagnostics RPC succeeded. After Microsoft sign-in was restored, the verified package below was uploaded to the existing extension. Marketplace reports **Verifying 0.1.10**; availability remains **Private (shared with 1)**. PR 2620's installed tab still loads the 0.1.9 CDN iframe. Publication and deployed 0.1.10 runtime verification are not yet confirmed.
 
 - Artifact: `artifacts/VaclavBerny.azure-filtered-review-0.1.10.vsix`
 - Size: **15,695,054 bytes**
