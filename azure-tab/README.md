@@ -2,11 +2,16 @@
 
 Private Azure DevOps extension adding a **Filtered Review** pull-request tab beside the native **Files** tab. This does not replace or modify Azure's built-in Files component.
 
-## Prepared update: 0.1.11 (not published)
+## Published update: 0.1.11
 
 Project-reference path renames now have a separate, default-on filter. Older saved preferences enable it automatically, even when C# rename detection is disabled. Reference-only edits such as `Mace.StationScreens.Common.csproj` pointing to the renamed `Mace.DAL.MaceDb.csproj` are hidden after an unambiguous project-move check; package-version changes and other XML edits remain visible. The desktop canvas also retains these classifications during manifest-only analysis, without loading all C# sources.
 
-Shared-analysis and real Edge regressions cover the reported paths, old preferences, explicit opt-out, removing a newly ignored active file, and reload persistence. The installed Marketplace release below remains 0.1.10 until the new VSIX is submitted and deployment is verified.
+Shared-analysis and real Edge regressions cover the reported paths, old preferences, explicit opt-out, removing a newly ignored active file, and reload persistence. Marketplace validation completed on October 13, 2026, with availability still **Private (shared with 1)**. Reloading PR 2620 confirmed its installed tab uses the **0.1.11** CDN iframe. The deployed Edge CDN suite passed; deployed `index.html`, `app.js`, and `analysis-worker.js` match the local production bytes exactly. A separate deployed-worker check recognizes the reported StationScreens.Common reference-only rename.
+
+- Artifact: `artifacts/VaclavBerny.azure-filtered-review-0.1.11.vsix`
+- Size: **15,695,082 bytes**
+- SHA-256: `64E30A9966731692B68C67A989B30093CCBAEDC8C9F905F574341F155588CB22`
+- CDN: `https://vaclavberny.gallerycdn.vsassets.io/extensions/vaclavberny/azure-filtered-review/0.1.11/1791889794848`
 
 ## Published update: 0.1.10
 
