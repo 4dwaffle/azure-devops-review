@@ -42,8 +42,11 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           global-json-file: companion/global.json
-      - name: Check browser and compiler prerequisites
+      - name: Configure test environment and check prerequisites
         run: |
+          # Avoid runner profile 8.3 aliases: Git reports long paths for temporary worktrees.
+          "TEMP=$env:RUNNER_TEMP" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "TMP=$env:RUNNER_TEMP" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
           if (!(Test-Path $env:REVIEW_BROWSER)) { throw 'Microsoft Edge is required for browser validation.' }
           $sdks = dotnet --list-sdks
           if ($LASTEXITCODE -ne 0 -or !($sdks -match '^10\.')) { throw '.NET 10 SDK is required for native compiler tests.' }
