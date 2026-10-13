@@ -28,6 +28,33 @@ test('Stale, completed, mismatched base, missing tracking, unsafe rename and ran
   const f=fixture();mutate(f);await assert.rejects(publishComment(f.connection,f.review,f.draft,()=>{}));assert.equal(f.calls.filter(call=>call[0]==='post').length,0);
  }
 });
+test('Inferred moves use the real deletion tracking on the left and addition tracking on the right',async()=>{
+ for(const side of ['left','right']){
+  const f=fixture();Object.assign(f.review.files[0],{status:'R100',blobUnchanged:true,inferredRename:true});f.draft.side=side;
+  f.client.getPullRequestIterationChanges=async()=>({changeEntries:[{item:{path:'/Old.cs'},changeType:16,changeTrackingId:11},{item:{path:'/New.cs'},changeType:1,changeTrackingId:12}]});
+  const body=await prepareComment(f.connection,f.review,f.draft);
+  assert.equal(body.threadContext.filePath,side==='left'?'/Old.cs':'/New.cs');
+  assert.equal(body.pullRequestThreadContext.changeTrackingId,side==='left'?11:12);
+  assert.ok(body.threadContext[`${side}FileStart`]);assert.equal(f.calls.filter(call=>call[0]==='post').length,0);
+ }
+ const f=fixture();Object.assign(f.review.files[0],{status:'R100',blobUnchanged:true,inferredRename:true});f.draft.side='left';
+ f.client.getPullRequestIterationChanges=async()=>({changeEntries:[{item:{path:'/New.cs'},originalPath:'/Old.cs',changeType:'edit, rename',changeTrackingId:12}]});
+ const body=await prepareComment(f.connection,f.review,f.draft);assert.equal(body.threadContext.filePath,'/New.cs');assert.equal(body.pullRequestThreadContext.changeTrackingId,12);
+});
+test('Inferred moves refuse incomplete, ambiguous or changed iteration path mappings',async()=>{
+ for(const entries of [
+  [{item:{path:'/New.cs'},changeType:1,changeTrackingId:12}],
+  [{item:{path:'/Old.cs'},changeType:16,changeTrackingId:12},{item:{path:'/New.cs'},changeType:1,changeTrackingId:12}],
+  [{item:{path:'/Old.cs'},changeType:2,changeTrackingId:11},{item:{path:'/New.cs'},changeType:1,changeTrackingId:12}],
+  [{item:{path:'/Old.cs'},changeType:16,changeTrackingId:11},{item:{path:'/New.cs'},changeType:2,changeTrackingId:12}],
+  [{item:{path:'/New.cs'},changeType:8,originalPath:'/Different.cs',changeTrackingId:12}],
+  [{item:{path:'/Old.cs'},changeType:16,changeTrackingId:11},{item:{path:'/Old.cs'},changeType:16,changeTrackingId:13},{item:{path:'/New.cs'},changeType:1,changeTrackingId:12}]
+ ]){
+  const f=fixture();Object.assign(f.review.files[0],{status:'R100',blobUnchanged:true,inferredRename:true});
+  f.client.getPullRequestIterationChanges=async()=>({changeEntries:entries});
+  await assert.rejects(publishComment(f.connection,f.review,f.draft,()=>{}));assert.equal(f.calls.filter(call=>call[0]==='post').length,0);
+ }
+});
 test('Publish once, durable uncertain result blocks retry; permission refusal remains editable',async()=>{
  let f=fixture(),states=[];const thread=await publishComment(f.connection,f.review,f.draft,d=>states.push(d.state));assert.equal(thread.id,101);assert.deepEqual(states,['publishing','published']);await assert.rejects(publishComment(f.connection,f.review,f.draft,()=>{}),/submitted/);assert.equal(f.calls.filter(call=>call[0]==='post').length,1);
  f=fixture();f.client.createThread=async()=>{throw new Error('network interruption');};await assert.rejects(publishComment(f.connection,f.review,f.draft,()=>{}),/uncertain/);assert.equal(f.draft.state,'uncertain');await assert.rejects(publishComment(f.connection,f.review,f.draft,()=>{}),/uncertain/);

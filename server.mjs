@@ -49,7 +49,7 @@ export async function startServer(service) {
                 } else return send(405, { error: 'Method not allowed' });
                 send(200, result); return;
             }
-            if (method !== 'GET' || !['', 'index.html', 'app.mjs', 'styles.css', 'theme.mjs', 'dependencies.mjs', 'diagnostics.mjs'].includes(route)) return send(404, { error: 'Not found' });
+            if (method !== 'GET' || !['', 'index.html', 'app.mjs', 'styles.css', 'theme.mjs', 'dependencies.mjs', 'diagnostics.mjs', 'path-changes.mjs'].includes(route)) return send(404, { error: 'Not found' });
             const name = route || 'index.html'; response.setHeader('Content-Type', `${mime[name.slice(name.lastIndexOf('.'))]}; charset=utf-8`); response.end(await readFile(join(directory, 'ui', name)));
         } catch (error) { send(error.status || (error.code === 'ENOENT' ? 404 : 400), { error: error.message }); }
     });

@@ -17,6 +17,7 @@ Open **Azure DevOps Review**. In Settings, enter the organization slug and absol
 - Active PRs are listed across organization repositories visible to your account, with filters for title, repository, author, and PR number. Listing failures are reported per repository.
 - Click a PR and use its changed-file tree. The canvas prefers a matching source branch, then a worktree at the source SHA, then a configured checkout.
 - The comparison is **Git merge-base(target, source) → source**, not a two-dot target diff. Files are read from immutable Git objects, never from uncommitted working files.
+- Git-detected path changes distinguish **Renamed**, **Moved**, and **Moved + renamed**. Row tooltips and the selected-file toolbar show the original → destination path; search matches either path. Content edits remain in the diff, and mode changes cannot be hidden as pure file moves.
 - Missing commits are reported. **Fetch refs** requires confirmation and downloads only the PR refs; no automatic clone, fetch, branch switch, or checkout is performed.
 - Mark files as viewed. Progress survives closing the panel, extension reloads and app restarts. A file is automatically unviewed when its blob identities, paths, or modes change.
 - Existing Azure threads and local drafts appear in the discussion panel. Historical or unverified coordinates are not decorated onto current code.

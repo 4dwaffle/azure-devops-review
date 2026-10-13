@@ -1,3 +1,4 @@
+import {changedFiles} from './review.mjs';
 export function commentPosition(model, selection) {
  if(!model||!selection)throw new Error('Select a line or code range in the diff first.');
  let {startLineNumber:startLine,startColumn,endLineNumber:endLine,endColumn}=selection;
@@ -38,10 +39,22 @@ export async function prepareComment(connection,review,draft) {
   if(!Number.isSafeInteger(page.nextSkip)||page.nextSkip<=skip)throw new Error('Invalid iteration change pagination.');
   skip=page.nextSkip;
  }while(true);
- const matches=changes.filter(change=>change.item?.path==='/'+draft.path);
- if(matches.length!==1||!Number.isSafeInteger(matches[0].changeTrackingId)||matches[0].changeTrackingId<1)throw new Error('No unique current-iteration change tracking ID for this file.');
- const change=matches[0];
- if(file.oldPath&&change.originalPath!=='/'+file.oldPath)throw new Error('Azure rename tracking does not match this reviewed file.');
+ const tracked=path=>{
+  const matches=changes.filter(change=>change.item?.path==='/'+path);
+  if(matches.length!==1||!Number.isSafeInteger(matches[0].changeTrackingId)||matches[0].changeTrackingId<1)throw new Error('No unique current-iteration change tracking ID for this file.');
+  return matches[0];
+ };
+ let change=tracked(file.path);
+ if(file.inferredRename){
+  if(file.status!=='R100'||!file.blobUnchanged||!file.oldPath)throw new Error('The inferred move is no longer verified.');
+  const destination=changedFiles([change])[0];
+  // Inferred moves retain Azure's real per-side tracking, unless iteration metadata confirms a rename.
+  if(destination?.status!=='R'||destination.oldPath!==file.oldPath){
+   const deletion=tracked(file.oldPath);
+   if(destination?.status!=='A'||changedFiles([deletion])[0]?.status!=='D'||deletion.changeTrackingId===change.changeTrackingId)throw new Error('Azure addition/deletion tracking does not match this reviewed move.');
+   if(draft.side==='left')change=deletion;
+  }
+ }else if(file.oldPath&&change.originalPath!=='/'+file.oldPath)throw new Error('Azure rename tracking does not match this reviewed file.');
  const side=draft.side;
  const body={comments:[{parentCommentId:0,content:draft.content,commentType:1}],status:1,threadContext:{filePath:change.item.path,[`${side}FileStart`]:{line:draft.startLine,offset:draft.startOffset},[`${side}FileEnd`]:{line:draft.endLine,offset:draft.endOffset}},pullRequestThreadContext:{changeTrackingId:change.changeTrackingId,iterationContext:{firstComparingIteration:draft.iteration,secondComparingIteration:draft.iteration}}};
  // Repeat the cheap live guard immediately before returning the body for the single write.

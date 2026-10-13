@@ -33,6 +33,33 @@ export function changedFiles(changes) {
  // Azure emits a delete for the original path alongside its rename destination.
  return [...files.values()].filter(file=>file.status!=='D'||renameOrigins.get(file.path)!==1).sort((a,b)=>a.path.localeCompare(b.path));
 }
+export function inferExactRenames(files,before,after) {
+ const origins=new Set(files.filter(file=>file.status.startsWith('R')).map(file=>file.oldPath));
+ const added=new Map(),deleted=new Map();let incomplete=false;
+ const collect=(groups,file,entry)=>{
+  if(!entry||!entry.mode){incomplete=true;return;}
+  if(!['100644','100755'].includes(String(entry.mode)))return;
+  if(!/^[a-f0-9]{40}$/i.test(entry.objectId||'')||/^0+$/.test(entry.objectId)){incomplete=true;return;}
+  const key=entry.objectId.toLowerCase();
+  if(!groups.has(key))groups.set(key,[]);
+  groups.get(key).push(file);
+ };
+ for(const file of files){
+  if(file.error){if(file.status==='A'||file.status==='D')incomplete=true;continue;}
+  if(file.status==='A'&&!before.has(file.path))collect(added,file,after.get(file.path));
+  if(file.status==='D'&&!after.has(file.path)&&!origins.has(file.path))collect(deleted,file,before.get(file.path));
+ }
+ if(incomplete)return files;
+ const paired=new Map(),removed=new Set();
+ for(const [blob,destinations] of added){
+  const sources=deleted.get(blob);
+  if(destinations.length!==1||sources?.length!==1)continue;
+  const destination=destinations[0],source=sources[0];
+  paired.set(destination.path,{...destination,status:'R100',oldPath:source.path,blobUnchanged:true,inferredRename:true});
+  removed.add(source.path);
+ }
+ return files.filter(file=>!removed.has(file.path)).map(file=>paired.get(file.path)||file);
+}
 export async function mapBounded(items, read, concurrency=4) {
  let cursor=0;await Promise.all(Array.from({length:Math.min(items.length,concurrency)},async()=>{while(cursor<items.length){const item=items[cursor++];await read(item);}}));
 }

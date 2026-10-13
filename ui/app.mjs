@@ -1,6 +1,7 @@
 import { watchAppTheme } from './theme.mjs';
 import { renderDependencyDiagrams } from './dependencies.mjs';
 import { diagnosticMarkers } from './diagnostics.mjs';
+import { pathChange } from './path-changes.mjs';
 const $ = id => document.getElementById(id);
 let config, prs = [], review, current, diff, models = [], navigation = 0, reviewNavigation = 0, controller, selection;
 let monacoLoaded = false, workerVerified = false, workerError = '', activeSide = 'right';
@@ -68,7 +69,7 @@ function renderReview() {
 function ignoreReasons(file) { return classifications.get(file.path)?.reasons || []; }
 function visibleFiles() {
     const filter = $('file-filter').value.toLowerCase();
-    return (review?.files || []).filter(file => file.path.toLowerCase().includes(filter) && (config?.reviewFilters?.showIgnored || !ignoreReasons(file).length));
+    return (review?.files || []).filter(file => [file.path, file.oldPath].some(path => path?.toLowerCase().includes(filter)) && (config?.reviewFilters?.showIgnored || !ignoreReasons(file).length));
 }
 async function loadAnalysis() {
     if (!review || review.localError) return;
@@ -178,9 +179,9 @@ function renderFiles() {
             parent = directories.get(path);
         }
         const reasons = ignoreReasons(file);
-        const button = element('button', null, `file${current?.path === file.path ? ' active' : ''}${reasons.length ? ' ignored-file' : ''}`); button.title = `${file.path}${reasons.length ? ` · ignored: ${reasons.join(', ')}` : ''}`;
+        const button = element('button', null, `file${current?.path === file.path ? ' active' : ''}${reasons.length ? ' ignored-file' : ''}`); button.title = `${pathChange(file)?.paths || file.path}${reasons.length ? ` · ignored: ${reasons.join(', ')}` : ''}`;
         button.dataset.path = file.path;
-        append(button, element('span', file.viewed ? '✓' : '○', 'file-viewed'), element('span', parts.at(-1), 'file-name'), element('span', file.status[0], 'file-status'));
+        append(button, element('span', file.viewed ? '✓' : '○', 'file-viewed'), element('span', parts.at(-1), 'file-name'), element('span', pathChange(file)?.label || file.status[0], 'file-status'));
         button.onclick = guard(() => openFile(file));
         const checkbox = element('input'); checkbox.type = 'checkbox'; checkbox.checked = selectedFiles.has(file.path);
         checkbox.setAttribute('aria-label', `Select ${file.path} for review or Copilot`); checkbox.dataset.selectionPath = file.path;
@@ -213,17 +214,17 @@ const editorReady = new Promise((resolve, reject) => {
 editorReady.catch(error => notice(`Monaco initialization failed: ${error.message}`, true));
 async function openFile(file) {
     const sequence = ++navigation; selection = null; controller?.abort(); controller = new AbortController();
-    const key = review.key; setEnabled(false); $('current-file').textContent = `${file.path} · loading…`;
+    const key = review.key; setEnabled(false); $('current-file').textContent = `${pathChange(file)?.paths || file.path} · loading…`;
     const result = await api(`file?key=${encodeURIComponent(key)}&path=${encodeURIComponent(file.path)}`, undefined, controller.signal);
     await editorReady; if (sequence !== navigation || key !== review?.key) return;
     if (current) { modelStates.set(`${key}:${current.path}`, diff.saveViewState()); if (modelStates.size > 100) modelStates.delete(modelStates.keys().next().value); }
     diff.setModel(null); models.forEach(model => { monaco.editor.setModelMarkers(model, 'roslyn', []); model.dispose(); }); models = [];
     current = { ...file, ...result };
-    if (result.binary) { $('current-file').textContent = `${file.path} · ${result.reason || 'binary (not rendered)'}`; setEnabled(false); $('previous-file').disabled = false; $('next-file').disabled = false; $('viewed').disabled = false; $('viewed').checked = file.viewed; renderFiles(); renderDiscussion(); return; }
+    if (result.binary) { $('current-file').textContent = `${pathChange(file)?.paths || file.path} · ${result.reason || 'binary (not rendered)'}`; setEnabled(false); $('previous-file').disabled = false; $('next-file').disabled = false; $('viewed').disabled = false; $('viewed').checked = file.viewed; renderFiles(); renderDiscussion(); return; }
     models = [monaco.editor.createModel(result.original, result.language, monaco.Uri.parse(`review://base/${encodeURIComponent(key)}/${encodeURIComponent(file.oldPath)}`)), monaco.editor.createModel(result.modified, result.language, monaco.Uri.parse(`review://source/${encodeURIComponent(key)}/${encodeURIComponent(file.path)}`))];
     diff.setModel({ original: models[0], modified: models[1] });
     const saved = modelStates.get(`${key}:${file.path}`); if (saved) diff.restoreViewState(saved);
-    $('current-file').textContent = file.path; $('viewed').checked = file.viewed; setEnabled(true); renderFiles(); renderDiscussion();
+    $('current-file').textContent = pathChange(file)?.paths || file.path; $('viewed').checked = file.viewed; setEnabled(true); renderFiles(); renderDiscussion();
     diff.getModifiedEditor().deltaDecorations([], result.threads.filter(thread => !thread.isDeleted && thread.threadContext?.rightFileStart && threadCoordinatesCurrent(thread)).map(thread => ({ range: new monaco.Range(thread.threadContext.rightFileStart.line, 1, thread.threadContext.rightFileEnd?.line || thread.threadContext.rightFileStart.line, 1), options: { isWholeLine: true, linesDecorationsClassName: 'review-comment-line', hoverMessage: { value: `Review thread #${thread.id}` } } })));
 }
 function threadCoordinatesCurrent(thread) {
