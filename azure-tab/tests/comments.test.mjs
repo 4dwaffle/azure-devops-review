@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {commentPosition,createCommentDraft,prepareComment,publishComment} from '../src/comments.mjs';
+import {commentPosition,createCommentDraft,prepareComment,publishComment,reconcileComment} from '../src/comments.mjs';
 const model={getLineCount:()=>3,getLineLength:line=>[4,6,0][line-1],getLineMaxColumn:line=>[5,7,1][line-1]};
 function fixture(){
  const file={path:'New.cs',oldPath:'Old.cs',status:'R',original:'aaaa\nbbbbbb\n',modified:'aaaa\nbbbbbb\n',fingerprint:'hash'};
@@ -35,4 +35,17 @@ test('Publish once, durable uncertain result blocks retry; permission refusal re
 });
 test('Unexpected successful response is uncertain, not silently retried',async()=>{
  const f=fixture();f.client.createThread=async body=>({...body,id:101,threadContext:{...body.threadContext,rightFileStart:{line:2,offset:0}}});await assert.rejects(publishComment(f.connection,f.review,f.draft,()=>{}),/uncertain/);assert.equal(f.draft.state,'uncertain');
+});
+test('Uncertain recovery requires exactly one matching root comment by the signed-in author',async()=>{
+ for(const scenario of ['valid','other-author','reply','deleted','wrong-range','multiple','no-user','missing-author','none']){
+  const f=fixture(),body=await prepareComment(f.connection,f.review,f.draft);f.draft.state='uncertain';f.draft.submittedBody=body;f.connection.user=scenario==='no-user'?undefined:'current-user';
+  const thread={...structuredClone(body),id:101,comments:body.comments.map(comment=>({...comment,author:scenario==='missing-author'?undefined:{id:scenario==='other-author'?'someone-else':'current-user'}}))};
+  if(scenario==='reply')thread.comments[0].parentCommentId=1;
+  if(scenario==='deleted')thread.comments[0].isDeleted=true;
+  if(scenario==='wrong-range')thread.threadContext.rightFileStart.offset++;
+  f.client.getThreads=async()=>scenario==='none'?[]:scenario==='multiple'?[thread,{...thread,id:102}]:[thread];let saves=0;
+  if(scenario==='valid'){assert.equal((await reconcileComment(f.connection,f.draft,()=>saves++)).id,101);assert.equal(f.draft.state,'published');assert.equal(saves,1);}
+  else {await assert.rejects(reconcileComment(f.connection,f.draft,()=>saves++));assert.equal(f.draft.state,'uncertain');assert.equal(saves,0);}
+  assert.equal(f.calls.filter(call=>call[0]==='post').length,0);
+ }
 });

@@ -56,16 +56,17 @@ export function restoreCommentDraft(value) {
  if(draft.state==='publishing')draft.state='uncertain';
  return draft;
 }
-export function matchesPublishedThread(thread,body) {
+export function matchesPublishedThread(thread,body,authorId) {
  if(!Number.isSafeInteger(thread?.id)||thread.id<1||thread.isDeleted||!body)return false;
  const actual=thread.threadContext,expected=body.threadContext,side=expected?.rightFileStart?'right':'left';
  const same=(a,b)=>!!b&&a?.line===b.line&&a?.offset===b.offset;
- return actual?.filePath===expected?.filePath&&same(actual?.[`${side}FileStart`],expected?.[`${side}FileStart`])&&same(actual?.[`${side}FileEnd`],expected?.[`${side}FileEnd`])&&thread.pullRequestThreadContext?.changeTrackingId===body.pullRequestThreadContext?.changeTrackingId&&thread.pullRequestThreadContext?.iterationContext?.firstComparingIteration===body.pullRequestThreadContext?.iterationContext?.firstComparingIteration&&thread.pullRequestThreadContext?.iterationContext?.secondComparingIteration===body.pullRequestThreadContext?.iterationContext?.secondComparingIteration&&thread.comments?.some(comment=>comment.content===body.comments?.[0]?.content&&!comment.isDeleted);
+ return actual?.filePath===expected?.filePath&&same(actual?.[`${side}FileStart`],expected?.[`${side}FileStart`])&&same(actual?.[`${side}FileEnd`],expected?.[`${side}FileEnd`])&&thread.pullRequestThreadContext?.changeTrackingId===body.pullRequestThreadContext?.changeTrackingId&&thread.pullRequestThreadContext?.iterationContext?.firstComparingIteration===body.pullRequestThreadContext?.iterationContext?.firstComparingIteration&&thread.pullRequestThreadContext?.iterationContext?.secondComparingIteration===body.pullRequestThreadContext?.iterationContext?.secondComparingIteration&&thread.comments?.some(comment=>comment.parentCommentId===0&&comment.content===body.comments?.[0]?.content&&!comment.isDeleted&&(!authorId||comment.author?.id?.toLowerCase()===authorId.toLowerCase()));
 }
 export async function reconcileComment(connection,draft,save) {
  if(draft.state!=='uncertain'||!draft.submittedBody)throw new Error('No saved publication payload is available. Check native Files manually.');
  const threads=await connection.client.getThreads(draft.repository,draft.prId,connection.project,draft.iteration,draft.iteration);
- const matches=threads.filter(thread=>matchesPublishedThread(thread,draft.submittedBody));
+ if(typeof connection.user!=='string'||!connection.user)throw new Error('Current comment author cannot be verified. Check native Files manually.');
+ const matches=threads.filter(thread=>matchesPublishedThread(thread,draft.submittedBody,connection.user));
  if(matches.length!==1)throw new Error(matches.length?'Multiple matching threads found. Check native Files manually.':'No matching published thread found. The result remains uncertain; do not retry without checking native Files.');
  draft.state='published';draft.threadId=matches[0].id;save(draft);return matches[0];
 }
