@@ -77,6 +77,23 @@ Current PR discovery first checks SDK configuration, then the documented host na
 - The embedded tab does not duplicate Azure’s PR title or state badges.
 - Shortcuts: `Ctrl+P` search, `J`/`K` next/previous file, `V` toggle viewed. In either editor pane, double-click a word and press `Ctrl+F` (`Cmd+F` on macOS) to search that string throughout the current file. `Enter`/`Shift+Enter` navigate matches; `Escape` closes Find. Find also works in inline layout and is bundled locally without inference. Editor input keeps Monaco's own key handling. Next/previous diff buttons navigate changed hunks.
 
+## Review order from the PR description
+
+A Markdown heading named `Review order` or `ReviewOrder` in the PR description enables an ordered file list automatically when at least one listed path matches. Use numbered or bulleted entries with repository-relative paths in backticks, as plain paths, or as Markdown link labels. Multiple named files on one entry follow their written order; text after a spaced dash is explanatory. Full paths match exactly and case-sensitively; a short path or filename matches only when unique among changed files, including rename origins. Duplicate references appear once. Fenced examples and subsequent sections are excluded.
+
+The sidebar's **Order → Review order** displays full paths in the supplied sequence, followed by all unlisted changed files alphabetically. The first file and next/previous buttons and J/K shortcuts follow this order. Search and ignore filters retain their usual behavior; ordering never reveals ignored files automatically or marks files reviewed. **Order → Folders (normal)** restores the folder tree and folder progress controls. The selected order is remembered locally for each PR across refreshes. An absent, empty or entirely unmatched review order falls back to normal ordering with all changed files available under the usual filters; a partial order always leaves unlisted files at the bottom. The selector tooltip reports missing or ambiguous paths.
+
+For example:
+
+```markdown
+## Review order
+
+1. `src/Logic/Handler.cs` — implementation.
+2. `src/Tests/HandlerTests.cs` — tests.
+```
+
+Prose such as “resources” does not identify a group: list the resource paths explicitly. Glob patterns and natural-language instructions are not interpreted. This changes only the extension's local presentation; it does not write PR metadata or change Azure's native Files tab.
+
 ## Inline comments and recovery
 
 Select one or multiple contiguous code lines in either original/modified Monaco pane, then use **Add comment**, **Ctrl/Cmd+M**, or **Add review comment on selected lines** in its editor context menu. The composer retains the selected side and exact range; a selection ending at the beginning of the following line excludes that trailing line. Coordinates, immutable commits, merge base, fingerprint and iteration are saved with the browser-local draft; drafts survive navigation and reloads. Before publishing, the adapter rechecks active PR commits and the latest iteration, pages that iteration's common-base changes, validates the canonical path/rename and unique change-tracking ID, and rechecks the PR immediately before one SDK POST. A server-side update can still race this final guard; Azure exposes no conditional thread-write API here.
