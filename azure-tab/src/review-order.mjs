@@ -19,7 +19,7 @@ export function reviewOrderPaths(description='') {
    const path=raw.replaceAll('\\','/').replace(/^(?:\.\/|\/)+/,'').replace(/[.,;:]$/,'');
    if(!path||seen.has(path))continue;
    // Bare prose words, URLs and glob patterns are not file references.
-   if(!/(?:\/|\.[\w-]+$)/.test(path)||/[:*?<>|]/.test(path))continue;
+   if((!match[1]&&!match[2]&&!/(?:\/|\.[\w-]+$)/.test(path))||/[:*?<>|]/.test(path))continue;
    seen.add(path);paths.push(path);
   }
  }
