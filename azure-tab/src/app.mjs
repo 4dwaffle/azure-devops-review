@@ -8,7 +8,7 @@ import {renderDependencyDiagrams} from '../../ui/dependencies.mjs';
 import {Progress,totals} from './review.mjs';
 import {pathChange} from '../../ui/path-changes.mjs';
 import {companionUrl} from './companion.mjs';
-import {buildFileTree,icon,fileIcon} from './file-tree.mjs';
+import {buildFileTree,flattenFileTree,icon,fileIcon} from './file-tree.mjs';
 import {initializeSidebar} from './sidebar.mjs';
 import {resolveReviewOrder} from './review-order.mjs';
 import {createCommentDraft,publishComment,reconcileComment,restoreCommentDraft,validatePosition} from './comments.mjs';
@@ -68,7 +68,8 @@ export async function start(connection,loadReview){
  })();};
  function reasons(file){return file.error||file.modeChanged?[]:ignoredReasons(file,filters,classification.get(file.path));}
  const orderedView=()=>$('file-order').value==='description';
- function visible(){if(!review)return [];const query=$('search').value.toLowerCase();return (orderedView()?reviewOrder.files:review.files).filter(file=>(filters.showIgnored||!reasons(file).length)&&[file.path,file.oldPath].some(path=>path?.toLowerCase().includes(query)));}
+ const tree=files=>buildFileTree(files,orderedView()?reviewOrder?.ranks:undefined);
+ function visible(){if(!review)return [];const query=$('search').value.toLowerCase();const files=review.files.filter(file=>(filters.showIgnored||!reasons(file).length)&&[file.path,file.oldPath].some(path=>path?.toLowerCase().includes(query)));return orderedView()?flattenFileTree(tree(files)):files;}
  $('file-order').onchange=()=>{if(!review)return;try{localStorage.setItem(progress.key+':file-order',$('file-order').value);}catch{}render();};
  function persistFilters(){localStorage.setItem('azure-filtered-review:filters',JSON.stringify(filters));render();}
  function render(){
@@ -77,7 +78,7 @@ export async function start(connection,loadReview){
    const option=$('file-order').querySelector('[value="description"]');option.disabled=!reviewOrder.matched;option.textContent=`Review order (${reviewOrder.matched})`;
    let preferred;try{preferred=localStorage.getItem(progress.key+':file-order');}catch{}
    $('file-order').value=reviewOrder.matched&&preferred!=='folders'?'description':'folders';
-   $('file-order').title=reviewOrder.unmatched.length?`Unmatched or ambiguous paths: ${reviewOrder.unmatched.join(', ')}`:reviewOrder.matched?'Paths from the PR description; remaining files follow alphabetically.':'No matching Review order section in the PR description.';
+   $('file-order').title=reviewOrder.unmatched.length?`Unmatched or ambiguous paths: ${reviewOrder.unmatched.join(', ')}`:reviewOrder.matched?'Folders follow their earliest listed file; unlisted siblings follow alphabetically.':'No matching Review order section in the PR description.';
   }
   if(!review)return;const candidates=review.files.filter(file=>classification.get(file.path)?.namespaceTextOnly&&!file.error&&!file.binary&&!file.modeChanged).length;$('namespace-hint').hidden=filters.namespaceRenames||!candidates;$('namespace-hint-text').textContent=`${candidates} namespace-only candidates remain visible. Text-only filtering is off; this is not compiler proof.`;const counts=totals(review.files,reasons,progress);$('progress').textContent=`${counts.viewed} / ${counts.total}${counts.ignored?` · ${counts.ignored} ignored`:''}`;
   const listed=visible(),listedPaths=new Set(listed.map(file=>file.path));
@@ -92,13 +93,12 @@ export async function start(connection,loadReview){
     const toggle=document.createElement('button');toggle.className='folder-toggle';toggle.dataset.focus=`folder-toggle:${node.path}`;toggle.setAttribute('aria-expanded',String(expanded));toggle.setAttribute('aria-label',`${expanded?'Collapse':'Expand'} folder ${node.path}`);toggle.title=node.path;toggle.onclick=()=>{expanded?collapsed.add(node.path):collapsed.delete(node.path);render();};const chevron=icon('chevron');chevron.classList.add('chevron');const folder=icon(expanded?'folderOpen':'folder');folder.classList.add('folder-icon');const name=document.createElement('span');name.className='folder-name';name.textContent=node.name;const count=document.createElement('span');count.className='folder-count';count.textContent=node.files.length;toggle.append(chevron,folder,name,count);heading.append(toggle);rows.append(heading);if(expanded)append(node.children);
    }else{
     const file=node.file,row=document.createElement('div');row.className=`file-row${file.path===active?.path?' active':''}${reasons(file).length?' ignored':''}`;row.style.setProperty('--depth',node.depth);row.dataset.path=file.path;
-    const button=document.createElement('button');button.dataset.focus=`file-open:${file.path}`;button.setAttribute('aria-label',`Open ${file.path}${progress.viewed(file)?', viewed':''}`);button.setAttribute('aria-current',String(file.path===active?.path));const name=document.createElement('span');name.className='file-name';name.textContent=node.name;button.append(fileIcon(file.path),name);button.title=[pathChange(file)?.paths||file.path,...reasons(file),classification.get(file.path)?.semanticReason,file.error||''].filter(Boolean).join('\n');button.onclick=safe(()=>open(file));
+    const button=document.createElement('button');button.dataset.focus=`file-open:${file.path}`;button.setAttribute('aria-label',`Open ${file.path}${progress.viewed(file)?', viewed':''}`);button.setAttribute('aria-current',String(file.path===active?.path));const name=document.createElement('span');name.className='file-name';name.textContent=node.name;button.append(fileIcon(file.path),name);button.title=[pathChange(file)?.paths||file.path,reviewOrder.notes.get(file.path),...reasons(file),classification.get(file.path)?.semanticReason,file.error||''].filter(Boolean).join('\n');button.onclick=safe(()=>open(file));
     const reviewed=document.createElement('input');reviewed.type='checkbox';reviewed.className='reviewed-checkbox';reviewed.dataset.focus=`file-reviewed:${file.path}`;reviewed.checked=progress.viewed(file);reviewed.disabled=!file.fingerprint;reviewed.setAttribute('aria-label',`Reviewed ${file.path}`);reviewed.title='Mark this file reviewed (saved locally)';reviewed.onchange=safe(()=>{try{progress.mark([file],reviewed.checked);}finally{render();}});row.append(reviewed,button);
     const status=document.createElement('small');const change=pathChange(file);status.textContent=file.error?'!':change?.label||file.status;status.dataset.status=file.error?'error':file.status;status.title=file.error||(change?`${change.label}: ${change.paths}${file.blobUnchanged?' · identical contents':' · inspect content changes'}`:`Change: ${file.status}`);row.append(status);rows.append(row);
    }
   }}
-  $('collapse-folders').hidden=orderedView();
-  append(orderedView()?listed.map(file=>({kind:'file',name:file.path,path:file.path,file,depth:0})):buildFileTree(listed));if(!listed.length){const empty=document.createElement('p');empty.className='tree-empty';empty.textContent='No files match your search and review filters.';rows.append(empty);}$('files').replaceChildren(rows);$('files').scrollTop=scroll;
+  append(tree(listed));if(!listed.length){const empty=document.createElement('p');empty.className='tree-empty';empty.textContent='No files match your search and review filters.';rows.append(empty);}$('files').replaceChildren(rows);$('files').scrollTop=scroll;
   if(focused){const element=[...$('files').querySelectorAll('[data-focus]')].find(element=>element.dataset.focus===focused);element?.focus({preventScroll:true});}
   if(active&&!listedPaths.has(active.path)){if(listed.length)open(listed[0]);else clearEditor();}
   $('viewed').checked=active?progress.viewed(active):false;

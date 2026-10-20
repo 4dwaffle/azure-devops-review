@@ -17,3 +17,5 @@ export const paths=[
  'src/TouchlessMzdy.Logic/Resources/Messages.resx'
 ];
 export const files=paths.map((path,index)=>({path,status:'M',original:'before',modified:'after',fingerprint:`review-order-${index}`})).sort((a,b)=>a.path.localeCompare(b.path));
+// Folder grouping is retained even when entries interleave across folders.
+export const treePaths=[paths[0],paths[1],paths[3],paths[2],paths[4],paths[7],paths[5],paths[6]];
