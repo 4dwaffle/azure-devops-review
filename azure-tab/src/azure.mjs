@@ -2,6 +2,7 @@ import * as SDK from 'azure-devops-extension-sdk';
 import {getClient,CommonServiceIds} from 'azure-devops-extension-api';
 import {GitRestClient} from 'azure-devops-extension-api/Git';
 import {pagedDiff,changedFiles,inferExactRenames,mapBounded,fingerprint} from './review.mjs';
+import {testProjectClassifier} from '../../test-projects.mjs';
 export function contextId(configuration={}) {
  const id=configuration.pullRequestId??configuration.pullRequest?.pullRequestId;
  return Number.isSafeInteger(Number(id))&&Number(id)>0?Number(id):null;
@@ -57,5 +58,24 @@ export async function loadPullRequest(connection,id) {
   if(completeTrees[version]&&!modes[version].has(path))return;
   try {const config=await readItem(path,version);configurations.push({path,side:version===base?'base':'source',contents:config.content||''});}catch(error){if(error.status!==404&&error.statusCode!==404)configurations.push({path,error:String(error.message||error)});}
  }));});
+ const projects={base:[],source:[],complete:completeTrees[base]&&completeTrees[source]};
+ const projectDirectories=new Set(['']);
+ for(const file of files)for(const path of [file.path,file.oldPath].filter(Boolean)){
+  let directory=path.slice(0,path.lastIndexOf('/')+1);
+  while(directory){projectDirectories.add(directory);directory=directory.slice(0,-1);directory=directory.slice(0,directory.lastIndexOf('/')+1);}
+ }
+ if(projects.complete)await mapBounded([base,source],async version=>{
+  const paths=[...modes[version].keys()].filter(path=>/\.csproj$/i.test(path)&&projectDirectories.has(path.slice(0,path.lastIndexOf('/')+1)));
+  await mapBounded(paths,async path=>{
+   const side=version===base?'base':'source',entry=modes[version].get(path);
+   try {
+    if(!['100644','100755'].includes(String(entry.mode)))throw new Error('Non-regular project file');
+    const project=await readItem(path,version);
+    projects[side].push({path,contents:project.contentMetadata?.isBinary?null:project.content});
+   }catch(error){projects[side].push({path,error:String(error.message||error)});}
+  },4);
+ },2);
+ const testProject=testProjectClassifier(projects);
+ for(const file of files)file.testProject=testProject(file);
  return {pr,repository,source,target,base,files,threads,latestIteration,threadError,configurations};
 }
