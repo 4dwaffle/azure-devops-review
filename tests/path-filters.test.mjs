@@ -1,6 +1,18 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { defaultFilters, ignoredReasons, normalizeFilters } from '../analysis.mjs';
+import { execFileSync } from 'node:child_process';
+
+test('adversarial regexes finish in a separate process instead of backtracking exponentially', () => {
+    const code = `import assert from 'node:assert/strict';import {ignoredReasons,normalizeFilters} from ${JSON.stringify(new URL('../analysis.mjs', import.meta.url).href)};
+      for(const pattern of ['regex:^(a+)+$','regex:^(a|aa)+$','regex:^(a+)*b$']) {
+        const filters=normalizeFilters({patterns:[pattern]});
+        assert.deepEqual(ignoredReasons({path:'a'.repeat(4000)+'.cs'},filters),[]);
+      }
+      assert.deepEqual(ignoredReasons({path:'a'.repeat(5000)},normalizeFilters({patterns:['regex:.*']})),[]);`;
+    execFileSync(process.execPath, ['--input-type=module', '--eval', code], { timeout: 5000 });
+    for (const pattern of [String.raw`regex:(a)\1`, 'regex:a(?=b)', 'regex:(?<=a)b']) assert.throws(() => normalizeFilters({ patterns: [pattern] }), /Invalid ignore regex/);
+});
 
 test('test projects are opt-in, including for older saved preferences', () => {
     assert.equal(defaultFilters.testProjects, false);

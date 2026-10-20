@@ -6,31 +6,41 @@ export function isTestProject(contents) {
     try {
         const project = new XMLParser({ ignoreAttributes: false, parseTagValue: false, trimValues: true, processEntities: false, removeNSPrefix: true }).parse(contents).Project;
         if (!project || typeof project !== 'object') return false;
-        let marker = /(?:^|;)MSTest\.Sdk(?:\/[^;]+)?(?:;|$)/i.test(project['@_Sdk'] || ''), uncertain = false;
+        const attribute = (node, name) => Object.entries(node || {}).find(([key]) => key.toLowerCase() === '@_' + name.toLowerCase())?.[1];
+        const hasAttribute = (node, name) => Object.keys(node || {}).some(key => key.toLowerCase() === '@_' + name.toLowerCase());
+        const children = node => Object.entries(node || {}).filter(([name]) => !name.startsWith('@_')).flatMap(([name, values]) => (Array.isArray(values) ? values : [values]).map(value => [name, value]));
+        let marker = /(?:^|;)MSTest\.Sdk(?:\/[^;]+)?(?:;|$)/i.test(attribute(project, 'Sdk') || ''), uncertain = hasAttribute(project, 'Condition');
         const properties = [];
-        function visit(object, conditional = false) {
-            if (!object || typeof object !== 'object') return;
-            if (Array.isArray(object)) { object.forEach(value => visit(value, conditional)); return; }
-            conditional ||= Object.hasOwn(object, '@_Condition');
-            for (const [name, values] of Object.entries(object)) {
-                for (const value of Array.isArray(values) ? values : [values]) {
-                    if (name === 'Import' || name === 'Choose') uncertain = true;
-                    if (name === 'IsTestProject') {
+        // Inspect only actual declaration locations. Item metadata and opaque
+        // ProjectExtensions XML cannot declare a project property or SDK.
+        for (const [group, object] of children(project)) {
+            if (['Import', 'ImportGroup', 'Choose', 'Target'].includes(group)) uncertain = true;
+            if (group === 'PropertyGroup') {
+                for (const [name, value] of children(object)) {
+                    if (name.toLowerCase() === 'istestproject') {
                         const text = typeof value === 'object' ? value?.['#text'] : value;
-                        if (conditional || typeof value === 'object' && Object.hasOwn(value, '@_Condition') || !/^(true|false)$/i.test(String(text).trim())) uncertain = true;
+                        if (hasAttribute(object, 'Condition') || hasAttribute(value, 'Condition') || !/^(true|false)$/i.test(String(text).trim())) uncertain = true;
                         else properties.push(String(text).trim().toLowerCase());
                     }
-                    const testPackage = name === 'PackageReference' && /^Microsoft\.NET\.Test\.Sdk$/i.test(value?.['@_Include'] || '');
-                    const testSdk = name === 'Sdk' && /^MSTest\.Sdk$/i.test(value?.['@_Name'] || '');
-                    if (testPackage || testSdk) {
-                        if (conditional || Object.hasOwn(value, '@_Condition')) uncertain = true;
-                        else marker = true;
-                    }
-                    if (!name.startsWith('@_')) visit(value, conditional || name === 'Target');
                 }
             }
+            if (group === 'ItemGroup') {
+                for (const [name, value] of children(object)) {
+                    if (name !== 'PackageReference') continue;
+                    // Wildcards, conditions and evaluation order can affect removal
+                    // or exclusion; do not confirm membership from stale evidence.
+                    if (hasAttribute(value, 'Remove') || hasAttribute(value, 'Exclude')) uncertain = true;
+                    if (/^Microsoft\.NET\.Test\.Sdk$/i.test(attribute(value, 'Include') || '')) {
+                        if (hasAttribute(object, 'Condition') || hasAttribute(value, 'Condition')) uncertain = true;
+                        else marker = true;
+                    }
+                }
+            }
+            if (group === 'Sdk' && /^MSTest\.Sdk$/i.test(attribute(object, 'Name') || '')) {
+                if (hasAttribute(object, 'Condition')) uncertain = true;
+                else marker = true;
+            }
         }
-        visit(project);
         if (uncertain || properties.includes('false')) return false;
         return properties.includes('true') || marker;
     } catch { return false; }

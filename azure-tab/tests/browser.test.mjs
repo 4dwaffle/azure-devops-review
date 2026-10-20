@@ -150,6 +150,15 @@ test('Actual Edge: Monaco, ignore worker, 40-file navigation, durable progress, 
  await page.click('#filters summary');assert.equal(await page.locator('#patterns').inputValue(),regexPattern);
  await page.check('#show-ignored');assert.equal(await page.locator('.file-row').count(),5);assert.equal(await page.locator('.file-row.ignored').count(),3);assert.equal(await page.locator('#progress').textContent(),'0 / 2 · 3 ignored');
  await page.uncheck('#show-ignored');await page.fill('#patterns','');await page.click('#apply-patterns');assert.equal(await page.locator('.file-row').count(),5);assert.equal(await page.locator('#progress').textContent(),'0 / 5');
+ // Saved adversarial patterns must remain responsive after applying and reloading.
+ await page.evaluate(async()=>{window.fixture.files.push({path:'a'.repeat(2000)+'.cs',status:'M',original:'before',modified:'after',fingerprint:'regex-adversarial'});localStorage.setItem('azure-filtered-review:test-fixture',JSON.stringify(window.fixture));await window.ui.load(14);});
+ await page.fill('#patterns','regex:^(a+)+$');await page.click('#apply-patterns');assert.equal(await page.locator('.file-row').count(),6);
+ await page.reload();await page.waitForFunction(()=>window.ready&&document.getElementById('progress').textContent==='0 / 6');
+ // An unsupported old JavaScript pattern is disabled without losing the saved value.
+ await page.evaluate(()=>{const key='azure-filtered-review:filters',filters=JSON.parse(localStorage.getItem(key));filters.patterns=['regex:a(?=b)'];localStorage.setItem(key,JSON.stringify(filters));});
+ await page.reload();await page.waitForFunction(()=>window.ready&&document.getElementById('notice').textContent.includes('Saved custom ignore patterns disabled'));assert.equal(await page.locator('.file-row').count(),6);
+ assert.deepEqual(await page.evaluate(()=>JSON.parse(localStorage.getItem('azure-filtered-review:filters')).patterns),['regex:a(?=b)']);
+ await page.click('#filters summary');assert.equal(await page.locator('#patterns').inputValue(),'');await page.click('#apply-patterns');assert.doesNotMatch(await page.locator('#notice').textContent(),/Saved custom ignore patterns disabled/);
  assert.deepEqual(external,[]);assert.deepEqual(errors,[]);
  }finally{await browser?.close();await new Promise(resolve=>server.close(resolve));await rm(directory,{recursive:true,force:true});}
 });

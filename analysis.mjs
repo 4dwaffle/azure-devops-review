@@ -1,6 +1,7 @@
 import { posix } from 'node:path';
 import { XMLParser, XMLValidator } from 'fast-xml-parser';
 import { generatedClassifier } from './generated-code.mjs';
+import { RE2JS } from 're2js';
 const operators = ['>>>=', '>>=', '<<=', '??=', '=>', '??', '?.', '::', '->', '++', '--', '&&', '||', '==', '!=', '<=', '>=', '+=', '-=', '*=', '/=', '%=', '&=', '|=', '^=', '<<', '>>', '..'];
 export const defaultFilters = { resources: false, formatting: false, usings: false, renames: true, projectReferenceRenames: true, namespaceRenames: false, generated: true, designers: true, migrations: true, testProjects: false, patterns: [], showIgnored: false };
 const ignoreRegexCache = new Map();
@@ -10,7 +11,7 @@ function ignoreRegex(pattern) {
     if (!source.trim()) throw new Error('Provide an expression after regex:');
     if (!ignoreRegexCache.has(source)) {
         let expression;
-        try { expression = new RegExp(source); }
+        try { expression = RE2JS.compile(source); }
         catch (error) { throw new Error(`Invalid ignore regex "${source}": ${error.message}`); }
         if (ignoreRegexCache.size >= 50) ignoreRegexCache.clear();
         ignoreRegexCache.set(source, expression);
@@ -20,7 +21,7 @@ function ignoreRegex(pattern) {
 export function normalizeFilters(value = {}) {
     if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid review filters');
     const patterns = value.patterns ?? [];
-    if (!Array.isArray(patterns) || patterns.length > 50 || patterns.some(pattern => typeof pattern !== 'string' || !pattern.trim() || pattern.length > 200 || /[\r\n\0]/.test(pattern) || (!pattern.trim().startsWith('regex:') && pattern.includes('\\')))) throw new Error('Provide up to 50 ignore patterns, at most 200 characters each: relative globs using / separators, or regex: followed by a JavaScript regular expression');
+    if (!Array.isArray(patterns) || patterns.length > 50 || patterns.some(pattern => typeof pattern !== 'string' || !pattern.trim() || pattern.length > 200 || /[\r\n\0]/.test(pattern) || (!pattern.trim().startsWith('regex:') && pattern.includes('\\')))) throw new Error('Provide up to 50 ignore patterns, at most 200 characters each: relative globs using / separators, or regex: followed by an RE2 expression');
     patterns.forEach(pattern => ignoreRegex(pattern.trim()));
     return { resources: value.resources === true, formatting: value.formatting === true, usings: value.usings === true, renames: value.renames !== false, projectReferenceRenames: value.projectReferenceRenames !== false, namespaceRenames: value.namespaceRenames === true, generated: value.generated !== false, designers: value.designers !== false, migrations: value.migrations !== false, testProjects: value.testProjects === true, patterns: [...new Set(patterns.map(pattern => pattern.trim()))], showIgnored: value.showIgnored === true };
 }
@@ -114,7 +115,7 @@ export function ignoredReasons(file, filters, classification = {}) {
     if (!file.error && !file.binary && !file.modeChanged && filters.namespaceRenames && classification.namespaceTextOnly) reasons.push('namespace rename propagation (text-only; not compiler-verified)');
     for (const pattern of filters.patterns || []) {
         const expression = ignoreRegex(pattern);
-        if (expression ? bothPaths(path => expression.test(path)) : posix.matchesGlob(file.path, pattern)) { reasons.push(`pattern: ${pattern}`); break; }
+        if (expression ? bothPaths(path => path.length <= 4096 && expression.test(path)) : posix.matchesGlob(file.path, pattern)) { reasons.push(`pattern: ${pattern}`); break; }
     }
     return reasons;
 }

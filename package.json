@@ -10,5 +10,9 @@
     "test:extension": "npm test --prefix azure-tab",
     "test:browser-roslyn": "npm test --prefix browser-roslyn"
   },
-  "dependencies": {"fast-xml-parser": "5.11.2", "editorconfig": "3.0.2"}
+  "dependencies": {
+    "editorconfig": "3.0.2",
+    "fast-xml-parser": "5.11.2",
+    "re2js": "2.8.8"
+  }
 }
