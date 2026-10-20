@@ -5,7 +5,9 @@ param(
     [Parameter(Mandatory)]
     [ValidatePattern('^\d+\.\d+\.\d+$')]
     [string] $Version,
-    [switch] $VerifyOnly
+    [switch] $VerifyOnly,
+    [ValidateRange(0, 3600)]
+    [int] $ValidationTimeoutSeconds = 900
 )
 
 $ErrorActionPreference = 'Stop'
@@ -50,15 +52,27 @@ if (([int] $info.flags -band 256) -ne 0) { throw 'The existing Marketplace exten
 
 # A rerun keeps the same version. Do not try to upload an immutable version twice.
 if (@($info.versions | Where-Object version -CEQ $Version).Count -eq 0) {
-    & node $tfx extension publish --vsix $package.FullName @auth
+    # TFX's built-in private-extension wait expires after about four minutes.
+    # Wait explicitly below so an accepted upload is not mistaken for a failed upload.
+    & node $tfx extension publish --vsix $package.FullName --no-wait-validation @auth
     if ($LASTEXITCODE -ne 0) { throw 'Marketplace publication failed.' }
 } else {
     Write-Host "Marketplace version $Version already exists; checking validation."
 }
 
-# isvalid can exit successfully with status pending/error, so inspect its JSON result.
-$statusJson = & node $tfx extension isvalid --vsix $package.FullName --version $Version @auth
-if ($LASTEXITCODE -ne 0) { throw 'Could not query Marketplace validation.' }
-$status = $statusJson | ConvertFrom-Json
-if ($status.status -cne 'success') { throw "Marketplace validation is $($status.status): $($status.message)" }
+# isvalid can exit successfully with status pending/error, so inspect every JSON result.
+$validationTimer = [Diagnostics.Stopwatch]::StartNew()
+while ($true) {
+    $statusJson = & node $tfx extension isvalid --vsix $package.FullName --version $Version @auth
+    if ($LASTEXITCODE -ne 0) { throw 'Could not query Marketplace validation.' }
+    $status = $statusJson | ConvertFrom-Json
+    if ($status.status -ceq 'success') { break }
+    if ($status.status -cne 'pending') { throw "Marketplace validation is $($status.status): $($status.message)" }
+    $remaining = $ValidationTimeoutSeconds - $validationTimer.Elapsed.TotalSeconds
+    if ($remaining -le 0) {
+        throw "Marketplace version $Version is still pending validation after $ValidationTimeoutSeconds seconds. Rerun this release to check the same version without uploading it again."
+    }
+    Write-Host "Marketplace version $Version is pending validation; checking again."
+    Start-Sleep -Seconds ([Math]::Min(15, $remaining))
+}
 Write-Host "Marketplace version $Version is validated. No organization installation was requested."

@@ -28,10 +28,10 @@ jobs:
       REVIEW_BROWSER: C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe
       RELEASE_VERSION: ${{ inputs.release-version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: '24'
           cache: npm
@@ -78,9 +78,18 @@ jobs:
             Set-Content build\packages\SHA256SUMS.txt -Encoding ascii
           $version = if ($env:RELEASE_VERSION) { $env:RELEASE_VERSION } else { (Get-Content azure-tab\vss-extension.json -Raw | ConvertFrom-Json).version }
           ./.github/scripts/Publish-Marketplace.ps1 -PackageDirectory build/packages -Version $version -VerifyOnly
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: release-packages
           path: build/packages/*
           if-no-files-found: error
           retention-days: 7
+      - name: Download packages for artifact verification
+        uses: actions/download-artifact@v8
+        with:
+          name: release-packages
+          path: build/downloaded-packages
+      - name: Verify downloaded release packages
+        run: |
+          $version = if ($env:RELEASE_VERSION) { $env:RELEASE_VERSION } else { (Get-Content azure-tab\vss-extension.json -Raw | ConvertFrom-Json).version }
+          ./.github/scripts/Publish-Marketplace.ps1 -PackageDirectory build/downloaded-packages -Version $version -VerifyOnly
