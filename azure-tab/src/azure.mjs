@@ -1,6 +1,6 @@
 import * as SDK from 'azure-devops-extension-sdk';
 import {getClient,CommonServiceIds} from 'azure-devops-extension-api';
-import {GitRestClient} from 'azure-devops-extension-api/Git';
+import {GitRestClient,GitServiceIds} from 'azure-devops-extension-api/Git';
 import {pagedDiff,changedFiles,inferExactRenames,mapBounded,fingerprint} from './review.mjs';
 import {testProjectClassifier} from '../../test-projects.mjs';
 import {preloadContents} from './blob-content.mjs';
@@ -11,27 +11,47 @@ export function contextId(configuration={}) {
 }
 export async function connect() {
  SDK.init({loaded:false,applyTheme:true});await SDK.ready();
+ // This supported host service is only a repository hint. The fresh PR read
+ // below remains authoritative, including when a manual ID belongs elsewhere.
+ const repositoryId=SDK.getService(GitServiceIds.VersionControlRepositoryService)
+  .then(service=>service.getCurrentGitRepository()).then(repository=>repository?.id,()=>null);
  const service=await SDK.getService(CommonServiceIds.ProjectPageService);const project=await service.getProject();
  if(!project)throw new Error('Open Filtered Review inside an Azure DevOps project.');
  const client=getClient(GitRestClient);let pullRequestId=contextId(SDK.getConfiguration());
   if(!pullRequestId){try {const navigation=await SDK.getService(CommonServiceIds.HostNavigationService);pullRequestId=contextId((await navigation.getPageRoute()).routeValues);}catch{/* Manual PR ID fallback remains available. */}}
   await SDK.notifyLoadSucceeded();
-  return {client,project:project.id,user:SDK.getUser().id,organization:SDK.getHost().id,pullRequestId};
+  return {client,project:project.id,user:SDK.getUser().id,organization:SDK.getHost().id,pullRequestId,repositoryId};
 }
 export async function loadPullRequest(connection,id) {
- const {client,project}=connection;const pr=await client.getPullRequestById(id,project);
+ const {client,project}=connection;
+ const readDiff=(repository,source,target)=>pagedDiff((skip,top)=>client.getCommitDiffs(repository,project,true,top,skip,{version:target,versionType:2},{version:source,versionType:2}));
+ let early=null,acceptHint=true;
+ // Iterations can identify immutable tips while a slow PR metadata response
+ // is in flight. Never wait for this optional hint, nor display it unchecked.
+ Promise.resolve(connection.repositoryId).then(async repository=>{
+  if(!acceptHint||!repository)return;
+  const iterations=await client.getPullRequestIterations(repository,id,project);
+  if(!acceptHint)return;
+  const latest=[...iterations].sort((a,b)=>b.id-a.id)[0];
+  const source=latest?.sourceRefCommit?.commitId,target=latest?.targetRefCommit?.commitId;
+  if(!/^[a-f0-9]{40}$/i.test(source||'')||!(/^[a-f0-9]{40}$/i.test(target||'')))return;
+  early={repository,source,target,result:readDiff(repository,source,target).then(value=>({value}),error=>({error}))};
+ }).catch(()=>{/* Missing host context or iteration access retains normal loading. */});
+ let pr;try{pr=await client.getPullRequestById(id,project);}finally{acceptHint=false;}
  const repository=pr.repository?.id;
  const source=pr.lastMergeSourceCommit?.commitId,target=pr.lastMergeTargetCommit?.commitId;
  if(!repository||!source||!target)throw new Error('PR snapshot commits are not available yet. Retry after Azure has calculated the merge.');
  const modes={},completeTrees={};
- const trees=new Map();
- const loadTree=version=>{if(!trees.has(version))trees.set(version,(async()=>{const commit=await client.getCommit(version,repository,project,0);const tree=await client.getTree(repository,commit.treeId,project,undefined,true);modes[version]=new Map(tree.treeEntries.map(entry=>[entry.relativePath.replace(/^\//,''),entry]));completeTrees[version]=tree.truncated!==true;})());return trees.get(version);};
- const diff=pagedDiff((skip,top)=>client.getCommitDiffs(repository,project,true,top,skip,{version:target,versionType:2},{version:source,versionType:2}));
+ const trees=new Map(),commits=new Map();
+ const loadCommit=version=>{if(!commits.has(version))commits.set(version,(async()=>{const commit=await client.getCommit(version,repository,project,0);if(commit.commitId!==version)throw new Error('Git commit metadata does not match the immutable snapshot.');return commit;})());return commits.get(version);};
+ const loadTree=version=>{if(!trees.has(version))trees.set(version,(async()=>{const commit=await loadCommit(version);const tree=await client.getTree(repository,commit.treeId,project,undefined,true);modes[version]=new Map(tree.treeEntries.map(entry=>[entry.relativePath.replace(/^\//,''),entry]));completeTrees[version]=tree.truncated!==true;})());return trees.get(version);};
+ const diff=early?.repository===repository&&early.source===source&&early.target===target?
+  early.result.then(result=>{if(result.error)throw result.error;return result.value;}):readDiff(repository,source,target);
  let latestIteration=null,threads=[],threadError;
  const comments=(async()=>{try {const iterations=await client.getPullRequestIterations(repository,id,project);const latest=[...iterations].sort((a,b)=>b.id-a.id)[0];latestIteration=latest?.sourceRefCommit?.commitId===source&&latest?.targetRefCommit?.commitId===target?latest.id:null;threads=await client.getThreads(repository,id,project,latestIteration??undefined,latestIteration??undefined);}catch(error){threadError=`Comment threads unavailable: ${error.message||error}`;}})();
  const {base,changes}=await diff;
  let files=changedFiles(changes);
- const scoped=await scopedTrees(client,repository,project,[base,source],files);
+ const scoped=await scopedTrees(client,repository,project,[base,source],files,loadCommit,changes);
  if(scoped)for(const [version,snapshot]of scoped){modes[version]=snapshot.entries;completeTrees[version]=snapshot.complete;}
  else await Promise.all([loadTree(source),loadTree(base)]);
  const descriptor=version=>({version,versionType:2});
