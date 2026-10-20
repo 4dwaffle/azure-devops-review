@@ -10,5 +10,9 @@
     "test:core": "node --test tests/*.test.mjs",
     "test:extension": "npm test --prefix azure-tab"
   },
-  "dependencies": {"fast-xml-parser": "5.11.2", "editorconfig": "3.0.2"}
+  "dependencies": {
+    "editorconfig": "3.0.2",
+    "fast-xml-parser": "5.11.2",
+    "re2js": "2.8.8"
+  }
 }

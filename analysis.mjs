@@ -1,13 +1,29 @@
 import { posix } from 'node:path';
 import { XMLParser, XMLValidator } from 'fast-xml-parser';
 import { generatedClassifier } from './generated-code.mjs';
+import { RE2JS } from 're2js';
 const operators = ['>>>=', '>>=', '<<=', '??=', '=>', '??', '?.', '::', '->', '++', '--', '&&', '||', '==', '!=', '<=', '>=', '+=', '-=', '*=', '/=', '%=', '&=', '|=', '^=', '<<', '>>', '..'];
-export const defaultFilters = { resources: false, formatting: false, usings: false, renames: true, projectReferenceRenames: true, namespaceRenames: false, generated: true, designers: true, migrations: true, patterns: [], showIgnored: false };
+export const defaultFilters = { resources: false, formatting: false, usings: false, renames: true, projectReferenceRenames: true, namespaceRenames: false, generated: true, designers: true, migrations: true, testProjects: false, patterns: [], showIgnored: false };
+const ignoreRegexCache = new Map();
+function ignoreRegex(pattern) {
+    if (!pattern.startsWith('regex:')) return null;
+    const source = pattern.slice(6);
+    if (!source.trim()) throw new Error('Provide an expression after regex:');
+    if (!ignoreRegexCache.has(source)) {
+        let expression;
+        try { expression = RE2JS.compile(source); }
+        catch (error) { throw new Error(`Invalid ignore regex "${source}": ${error.message}`); }
+        if (ignoreRegexCache.size >= 50) ignoreRegexCache.clear();
+        ignoreRegexCache.set(source, expression);
+    }
+    return ignoreRegexCache.get(source);
+}
 export function normalizeFilters(value = {}) {
     if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid review filters');
     const patterns = value.patterns ?? [];
-    if (!Array.isArray(patterns) || patterns.length > 50 || patterns.some(pattern => typeof pattern !== 'string' || !pattern.trim() || pattern.length > 200 || /[\r\n\0\\]/.test(pattern))) throw new Error('Provide up to 50 relative ignore globs, using / separators and at most 200 characters each');
-    return { resources: value.resources === true, formatting: value.formatting === true, usings: value.usings === true, renames: value.renames !== false, projectReferenceRenames: value.projectReferenceRenames !== false, namespaceRenames: value.namespaceRenames === true, generated: value.generated !== false, designers: value.designers !== false, migrations: value.migrations !== false, patterns: [...new Set(patterns.map(pattern => pattern.trim()))], showIgnored: value.showIgnored === true };
+    if (!Array.isArray(patterns) || patterns.length > 50 || patterns.some(pattern => typeof pattern !== 'string' || !pattern.trim() || pattern.length > 200 || /[\r\n\0]/.test(pattern) || (!pattern.trim().startsWith('regex:') && pattern.includes('\\')))) throw new Error('Provide up to 50 ignore patterns, at most 200 characters each: relative globs using / separators, or regex: followed by an RE2 expression');
+    patterns.forEach(pattern => ignoreRegex(pattern.trim()));
+    return { resources: value.resources === true, formatting: value.formatting === true, usings: value.usings === true, renames: value.renames !== false, projectReferenceRenames: value.projectReferenceRenames !== false, namespaceRenames: value.namespaceRenames === true, generated: value.generated !== false, designers: value.designers !== false, migrations: value.migrations !== false, testProjects: value.testProjects === true, patterns: [...new Set(patterns.map(pattern => pattern.trim()))], showIgnored: value.showIgnored === true };
 }
 export function resourcePath(path) { return /\.(resx|resources|xlf|xliff|po|pot)$/i.test(path) || /(?:^|\/)[^/]*Resources(?:\.Designer)?\.cs$/i.test(path); }
 function tokens(text) {
@@ -89,6 +105,7 @@ export function ignoredReasons(file, filters, classification = {}) {
     const bothPaths = predicate => predicate(file.path) && (!file.oldPath || file.status?.startsWith('A') || predicate(file.oldPath));
     if (!file.modeChanged && filters.designers && bothPaths(path => /\.designer\.[^/.]+$/i.test(path))) reasons.push('designer file');
     if (!file.modeChanged && filters.migrations && bothPaths(path => /(?:^|\/)migrations\//i.test(path))) reasons.push('migration folder');
+    if (!file.error && !file.modeChanged && filters.testProjects && file.testProject === true) reasons.push('test project');
     if (filters.resources && resourcePath(file.path)) reasons.push('resource file');
     if (!file.modeChanged && filters.generated && classification.generated) reasons.push(`generated code: ${classification.generatedReason}`);
     if (!file.modeChanged && filters.formatting && classification.formattingOnly) reasons.push('formatting only');
@@ -96,7 +113,10 @@ export function ignoredReasons(file, filters, classification = {}) {
     if (!file.modeChanged && filters.renames && classification.renameOnly) reasons.push(classification.fileRenameOnly ? 'file/path rename only' : 'detected type-rename references only');
     if (!file.error && !file.binary && !file.modeChanged && filters.projectReferenceRenames !== false && classification.projectReferenceRenameOnly) reasons.push('project-reference path rename propagation only');
     if (!file.error && !file.binary && !file.modeChanged && filters.namespaceRenames && classification.namespaceTextOnly) reasons.push('namespace rename propagation (text-only; not compiler-verified)');
-    for (const pattern of filters.patterns || []) if (posix.matchesGlob(file.path, pattern)) { reasons.push(`pattern: ${pattern}`); break; }
+    for (const pattern of filters.patterns || []) {
+        const expression = ignoreRegex(pattern);
+        if (expression ? bothPaths(path => path.length <= 4096 && expression.test(path)) : posix.matchesGlob(file.path, pattern)) { reasons.push(`pattern: ${pattern}`); break; }
+    }
     return reasons;
 }
 export function dependencyManifest(path) { return /\.(csproj|fsproj|vbproj|props|targets)$/i.test(path) || /(?:^|\/)(?:packages\.config|packages\.lock\.json|package\.json|package-lock\.json)$/i.test(path); }
