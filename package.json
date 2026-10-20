@@ -1,5 +1,6 @@
 {
   "name": "azure-devops-review",
+  "description": "Private Azure DevOps Filtered Review PR tab with local filters, browser-local progress, and explicit inline comments.",
   "private": true,
   "type": "module",
   "scripts": {

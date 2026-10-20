@@ -4,7 +4,7 @@ The optional companion verifies repeated C# reference renames using **explicitly
 
 ## Start and connect
 
-Requires Node.js 22+, Git, and a stable .NET 10 SDK. From the extension root:
+Requires Node.js 22+, Git, and a stable .NET 10 SDK. From the repository root:
 
 ```powershell
 Push-Location companion
@@ -12,6 +12,8 @@ dotnet build ReviewCompiler.csproj --nologo -v:q
 Pop-Location
 node companion\serve.mjs companion\profiles\my-pr.json
 ```
+
+`companion/global.json` selects a stable .NET 10 SDK when building from that directory. The companion is run separately and is not bundled into the VSIX or GitHub release assets.
 
 Prepare the trusted profile described below first. The profile directory is ignored by Git; never commit machine-specific paths, generated sources, references or private PR snapshots. Build **this trusted companion project only**. Do not build an untrusted PR or evaluate its project files to discover configuration.
 
@@ -83,4 +85,4 @@ Browser and native verification run concurrently. An unconfigured URL performs n
 
 Tests use temporary immutable Git repositories and trusted synthetic sources, not private application code. Native tests cover a 256-file PR beyond the browser binding limit, unchanged supporting sources, pinned references, project graphs, multiple owners, exact compiler paths and incomplete configuration. Real Edge verifies **252 safe references ignored / 4 origin, caller-info and mixed-edit files visible**, plus stale/unreachable endpoints and explicit disabling. .NET-dependent tests skip when no stable .NET 10 SDK is installed; browser client unit tests remain runnable.
 
-**PR 2620 has not been verified with the companion.** No trusted complete profile for that real PR has been prepared. Its previously reported cached namespace-filter benchmark is separate text-only filtering, not native compiler evidence.
+These synthetic tests do not establish compiler verification for a real PR. That requires a trusted complete profile matching the PR's immutable commits. The extension README's historical PR 2620 namespace-filter benchmarks did not use the native companion.
