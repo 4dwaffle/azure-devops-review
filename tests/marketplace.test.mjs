@@ -33,11 +33,19 @@ function node {
   switch ($command) {
     show { @{flags = [int]$env:MOCK_FLAGS; versions = @(@{version = $env:MOCK_EXISTING_VERSION})} | ConvertTo-Json -Depth 5 -Compress }
     publish { '{"published":true}' }
-    isvalid { @{status = $env:MOCK_VALIDATION; message = 'test validation result'} | ConvertTo-Json -Compress }
+    isvalid {
+      $statuses = $env:MOCK_VALIDATION -split ','
+      $index = [Math]::Min($script:validationCalls, $statuses.Count - 1)
+      $script:validationCalls++
+      if ($statuses[$index] -eq 'malformed') { return 'not-json' }
+      @{status = $statuses[$index]; message = 'test validation result'} | ConvertTo-Json -Compress
+    }
     default { throw "Unexpected TFX command $command" }
   }
 }
-& $PublishScript -PackageDirectory $packages.FullName -Version '0.2.5' -VerifyOnly:($env:MOCK_VERIFY_ONLY -eq 'true')
+$script:validationCalls = 0
+function Start-Sleep { param($Seconds) Add-Content (Join-Path $Directory 'sleeps.txt') $Seconds }
+& $PublishScript -PackageDirectory $packages.FullName -Version '0.2.5' -VerifyOnly:($env:MOCK_VERIFY_ONLY -eq 'true') -ValidationTimeoutSeconds ([int]$env:MOCK_VALIDATION_TIMEOUT)
 `);
     let error;
     let output = '';
@@ -49,6 +57,7 @@ function node {
           MOCK_EXISTING_VERSION: options.existingVersion ?? '0.1.13',
           MOCK_FLAGS: String(options.flags ?? 0),
           MOCK_VALIDATION: options.validation ?? 'success',
+          MOCK_VALIDATION_TIMEOUT: String(options.validationTimeout ?? 0),
           MOCK_FAIL: options.fail ?? '',
           MOCK_BAD_CHECKSUM: String(options.badChecksum ?? false),
           MOCK_EXTRA_PACKAGE: String(options.extraPackage ?? false),
@@ -64,7 +73,11 @@ function node {
       if (failure.code === 'ENOENT') return '';
       throw failure;
     });
-    return {error, output, calls: calls.trim() ? calls.trim().split(/\r?\n/).map(line => JSON.parse(line)) : []};
+    const sleeps = await readFile(resolve(directory, 'sleeps.txt'), 'utf8').catch(failure => {
+      if (failure.code === 'ENOENT') return '';
+      throw failure;
+    });
+    return {error, output, sleeps: sleeps.trim() ? sleeps.trim().split(/\r?\n/).map(Number) : [], calls: calls.trim() ? calls.trim().split(/\r?\n/).map(line => JSON.parse(line)) : []};
   } finally {
     await rm(directory, {recursive: true, force: true});
   }
@@ -78,7 +91,8 @@ test('Marketplace publishes the exact verified VSIX and waits for successful val
   for (const args of result.calls) {
     assert.equal(args[args.indexOf('--vsix') + 1], packagePath);
     assert.ok(args.includes('--no-prompt'));
-    for (const flag of ['--share-with', '--rev-version', '--bypass-validation', '--bypass-scope-check', '--no-wait-validation']) assert.ok(!args.includes(flag), flag);
+    for (const flag of ['--share-with', '--rev-version', '--bypass-validation', '--bypass-scope-check']) assert.ok(!args.includes(flag), flag);
+    assert.equal(args.includes('--no-wait-validation'), args[2] === 'publish');
   }
   const validation = result.calls.at(-1);
   assert.equal(validation[validation.indexOf('--version') + 1], '0.2.5');
@@ -88,6 +102,27 @@ test('Marketplace rerun validates an existing version without uploading it again
   const result = await publish({existingVersion: '0.2.5'});
   assert.equal(result.error, undefined, result.output);
   assert.deepEqual(result.calls.map(args => args[2]), ['show', 'isvalid']);
+});
+
+for (const existingVersion of ['0.1.13', '0.2.5']) {
+  test(`Marketplace waits for the exact version to validate without reuploading (existing ${existingVersion})`, async () => {
+    const result = await publish({existingVersion, validation: 'pending,pending,success', validationTimeout: 900});
+    assert.equal(result.error, undefined, result.output);
+    assert.deepEqual(result.calls.map(args => args[2]), existingVersion === '0.2.5' ? ['show', 'isvalid', 'isvalid', 'isvalid'] : ['show', 'publish', 'isvalid', 'isvalid', 'isvalid']);
+    assert.deepEqual(result.sleeps, [15, 15]);
+    for (const args of result.calls.filter(args => args[2] === 'isvalid')) assert.equal(args[args.indexOf('--version') + 1], '0.2.5');
+    assert.match(result.output, /Marketplace version 0\.2\.5 is validated/);
+  });
+}
+
+test('Marketplace pending timeout fails with a same-version recovery instruction', async () => {
+  const result = await publish({existingVersion: '0.2.5', validation: 'pending'});
+  assert.ok(result.error);
+  assert.match(result.output, /still pending validation after 0 seconds/);
+  assert.match(result.output, /without uploading it again/);
+  assert.doesNotMatch(result.output, /is validated/);
+  assert.deepEqual(result.calls.map(args => args[2]), ['show', 'isvalid']);
+  assert.deepEqual(result.sleeps, []);
 });
 
 test('CI can verify the private versioned package without credentials or publishing', async () => {
@@ -117,13 +152,18 @@ for (const [name, options, commands] of [
   ['query failure', {fail: 'show'}, ['show']],
   ['public Marketplace listing', {flags: 256}, ['show']],
   ['publication failure', {fail: 'publish'}, ['show', 'publish']],
+  ['validation query failure', {fail: 'isvalid'}, ['show', 'publish', 'isvalid']],
   ['pending validation with exit code zero', {validation: 'pending'}, ['show', 'publish', 'isvalid']],
   ['failed validation with exit code zero', {validation: 'error'}, ['show', 'publish', 'isvalid']],
-  ['pending existing version', {existingVersion: '0.2.5', validation: 'pending'}, ['show', 'isvalid']]
+  ['pending existing version', {existingVersion: '0.2.5', validation: 'pending'}, ['show', 'isvalid']],
+  ['rejection after pending validation', {validation: 'pending,error', validationTimeout: 900}, ['show', 'publish', 'isvalid', 'isvalid']],
+  ['malformed validation response', {validation: 'malformed'}, ['show', 'publish', 'isvalid']],
+  ['unknown validation response', {validation: 'unknown'}, ['show', 'publish', 'isvalid']]
 ]) {
   test(`Marketplace does not report success for ${name}`, async () => {
     const result = await publish(options);
     assert.ok(result.error, result.output);
+    assert.doesNotMatch(result.output, /is validated/);
     assert.deepEqual(result.calls.map(args => args[2]), commands);
   });
 }
