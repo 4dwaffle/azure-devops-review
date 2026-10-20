@@ -140,7 +140,7 @@ test('Actual Edge: Monaco, ignore worker, 40-file navigation, durable progress, 
   const entry=(relativePath,id,mode='100644')=>({relativePath,mode,objectId:id.repeat(40)});
   const client={
    getPullRequestById:async()=>({repository:{id:'r'},lastMergeSourceCommit:{commitId:'s'},lastMergeTargetCommit:{commitId:'t'}}),
-   getCommitDiffs:async(...args)=>{calls.push(['diff',args]);return sdkClient.getCommitDiffs(...args);},getCommit:async id=>({treeId:`tree${id}`}),
+   getCommitDiffs:async(...args)=>{calls.push(['diff',args]);return sdkClient.getCommitDiffs(...args);},getCommit:async id=>({commitId:id,treeId:`tree${id}`}),
    getTree:async(repo,tree)=>({treeEntries:tree==='treeb'?[entry('Old.cs','a'),entry('before/Same.cs','b'),entry('ModeOld.cs','c'),entry('EditedOld.cs','d'),entry('Removed.cs','f'),entry('before/.editorconfig','1')]:[entry('New.cs','a'),entry('after/Renamed.cs','b'),entry('ModeNew.cs','c','100755'),entry('EditedNew.cs','e'),entry('Added.cs','9')]}),
    getPullRequestIterations:async()=>[{id:4,sourceRefCommit:{commitId:'s'},targetRefCommit:{commitId:'t'}}],getThreads:async()=>[],
    getItem:async(...args)=>{calls.push(['item',args]);if(args[1].endsWith('config'))return {content:'[*.cs]\ngenerated_code = false'};return {content:args[1]==='/EditedNew.cs'?'class C { int x; }':'class C {}',contentMetadata:{isBinary:false}};}

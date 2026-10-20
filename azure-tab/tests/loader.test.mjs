@@ -12,7 +12,7 @@ function fixture(truncated=false) {
  const client={
   getPullRequestById:async()=>({repository:{id:'r'},lastMergeSourceCommit:{commitId:'s'},lastMergeTargetCommit:{commitId:'t'}}),
   getCommitDiffs:async()=>({commonCommit:'b',allChangesIncluded:true,changes:[{changeType:'edit, rename',originalPath:'/old/A.cs',item:{path:'/new/A.cs'}}]}),
-  getCommit:async version=>({treeId:version}),
+  getCommit:async version=>({commitId:version,treeId:version}),
   getTree:async(_r,version)=>({truncated,treeEntries:version==='b'?[entry('old/A.cs','a'),entry('old/.editorconfig','b')]:[entry('new/A.cs','a'),entry('new/.editorconfig','c')]}),
   getPullRequestIterations:async()=>[{id:2,sourceRefCommit:{commitId:'s'},targetRefCommit:{commitId:'t'}}],getThreads:async()=>[],
   getItem:async(...args)=>{const path=args[1],version=args[8].version;calls.push([path,version]);if(path.endsWith('A.cs'))return {content:'class A {}',contentMetadata:{isBinary:false}};if(path=== '/old/.editorconfig'&&version==='b')return {content:'[*.cs]\ngenerated_code = false'};if(path=== '/new/.editorconfig'&&version==='s')throw new Error('Configuration read failed');throw {status:404};}
@@ -148,7 +148,7 @@ function bulkLoaderFixture({bulk=true,failure}={}){
   },
   getCommit:async(version,repository,project,changeCount)=>{
    assert.ok([snapshotBase,snapshotSource].includes(version));assert.equal(repository,'repo');assert.equal(project,'project');assert.equal(changeCount,0);
-   return {treeId:version};
+   return {commitId:version,treeId:version};
   },
   getTree:async(repository,version,project,_url,recursive)=>{
    assert.equal(repository,'repo');assert.equal(project,'project');assert.equal(recursive,true);
@@ -285,8 +285,8 @@ test('A client with only one bulk API falls back to immutable per-item reads wit
  }
 });
 
-function smallRepositoryFixture({scoped=true,failure,truncated=false}={}){
- const fixture=bulkLoaderFixture(),{client,records}=fixture,fullDiff=client.getCommitDiffs,fullTree=client.getTree,metadata=client.getItemsBatch;
+function smallRepositoryFixture({scoped=true,failure,truncated=false,hints=false,wrongHint=false}={}){
+ const fixture=bulkLoaderFixture(),{client,records}=fixture,fullDiff=client.getCommitDiffs,metadata=client.getItemsBatch;
  // Eight changes, but 20,000 unrelated files: repository size must not dictate
  // small-review acquisition. Include moves, old ancestors and an added file.
  const selected=new Set(['src/Tests/Changed.cs','src/Tests/Added.cs','src/Tests/Deleted.cs','old/Inferred.cs','new/Inferred.cs','scripts/run.sh','src/Tests/Nested/Code.cs','src/Transition/Code.cs']);
@@ -304,11 +304,26 @@ function smallRepositoryFixture({scoped=true,failure,truncated=false}={}){
    directories.set(immutableKey('/'+path,version),{path:'/'+path,commitId:version,objectId:id,gitObjectType:2,isFolder:true});trees.set(id,{truncated,treeEntries:entries});
   }
  }
+ if(hints){
+  const readDiff=client.getCommitDiffs;
+  client.getCommitDiffs=async(...args)=>{
+   const diff=await readDiff(...args),wanted=new Set();
+   for(const change of diff.changes){let path=change.item.path;while(path.lastIndexOf('/')>0){path=path.slice(0,path.lastIndexOf('/'));wanted.add(path);}}
+   for(const path of wanted){
+    const after=directories.get(immutableKey(path,snapshotSource)),before=directories.get(immutableKey(path,snapshotBase));
+    if(after)diff.changes.push({changeType:'edit',item:{...after,objectId:wrongHint?'9'.repeat(40):after.objectId,originalObjectId:before?.objectId}});
+   }
+   return diff;
+  };
+ }
+ const rootVersion=new Map([snapshotBase,snapshotSource].map(version=>[createHash('sha1').update(version+':').digest('hex'),version]));
+ client.getCommit=async version=>({commitId:failure==='wrong-commit'?snapshotTarget:version,treeId:failure==='missing-root'?'0'.repeat(40):createHash('sha1').update(version+':').digest('hex')});
  client.getTree=async(...args)=>{
   treeCalls.push(args);
-  if(args[4]){const result=await fullTree(...args);return {...result,truncated,treeEntries:all.filter(record=>record.version===args[1]).map(record=>record.entry)};}
+  if(args[4]){return {truncated,treeEntries:all.filter(record=>record.version===(rootVersion.get(args[1])||args[1])).map(record=>record.entry)};}
   assert.ok(trees.has(args[1]));
-  if(failure==='tree-rejected')throw new Error('Scoped listing unavailable');
+  if(!scoped||failure==='tree-rejected')throw new Error('Scoped listing unavailable');
+  if(failure==='invalid-entry')return {treeEntries:[{relativePath:'unexpected/descendant',mode:'040000',objectId:'a'.repeat(40)}]};
   return trees.get(args[1]);
  };
  client.getItemsBatch=async(...args)=>{
@@ -339,15 +354,86 @@ test('A small diff in a large repository loads only applicable directories with 
  assert.equal(actual.files.find(file=>file.path==='new/Inferred.cs').modeChanged,true);
  assert.ok(small.treeCalls.length>0);assert.ok(small.treeCalls.every(args=>args[4]===false),'No repository-wide recursive reads for a small diff');
  assert.ok(full.treeCalls.some(args=>args[4]===true),'The comparison exercises the original full-tree path');
- assert.equal(small.directoryCalls.length,1);assert.equal(small.zipCalls.length,1);
+ assert.equal(small.directoryCalls.length,0,'Directory identities come from immutable parent trees');assert.equal(small.zipCalls.length,1);
 });
 
-test('Small-review directory snapshot, batch and tree failures fall back without losing any review context',async t=>{
+test('Diff tree hints retain root-verified context even when hints are wrong, and never exceed eight concurrent reads',async()=>{
  const expected=normalized(await loadFixture(smallRepositoryFixture({scoped:false})));
- for(const failure of ['batch-rejected','wrong-version','wrong-path','missing-root','partial-batch','tree-rejected'])await t.test(failure,async()=>{
+ for(const wrongHint of [false,true]){
+  const fixture=smallRepositoryFixture({hints:true,wrongHint}),read=fixture.client.getTree;let active=0,maximum=0;
+  fixture.client.getTree=async(...args)=>{active++;maximum=Math.max(maximum,active);try{await turn();return await read(...args);}finally{active--;}};
+  assert.deepEqual(normalized(await loadFixture(fixture)),expected);
+  assert.ok(maximum<=8);assert.ok(maximum>2,'Immutable directory reads overlap rather than following every parent serially');
+  const ids=fixture.treeCalls.filter(args=>args[4]===false).map(args=>args[1]);
+  assert.equal(new Set(ids).size,ids.length,'Warm and root-verified reads share one immutable promise');
+  assert.equal(fixture.directoryCalls.length,0);
+ }
+});
+
+const gate=()=>{let resolve;const promise=new Promise(done=>resolve=done);return {promise,resolve};};
+const turn=()=>new Promise(resolve=>setImmediate(resolve));
+async function until(promise){let timer;try{return await Promise.race([promise,new Promise((_,reject)=>timer=setTimeout(()=>reject(new Error('Immutable diff waited for PR metadata')),1000))]);}finally{clearTimeout(timer);}}
+
+test('The production loader starts immutable diff work before slow PR metadata and still returns the validated snapshot',async()=>{
+ const fixture=smallRepositoryFixture(),{client}=fixture,metadata=client.getPullRequestById,diff=client.getCommitDiffs;
+ const metadataGate=gate(),diffStarted=gate();let metadataPending=true;
+ client.getPullRequestById=async(...args)=>{await metadataGate.promise;metadataPending=false;return metadata(...args);};
+ client.getCommitDiffs=async(...args)=>{assert.equal(metadataPending,true);diffStarted.resolve();return diff(...args);};
+ const loading=loadPullRequest({client,project:'project',repositoryId:Promise.resolve('repo')},2620);
+ try{await until(diffStarted.promise);}finally{metadataGate.resolve();}
+ const actual=await loading,expected=await loadFixture(smallRepositoryFixture());
+ assert.deepEqual(normalized(actual),normalized(expected));
+ assert.deepEqual(fixture.threadCalls,[['repo',2620,'project',3,3]],'Comments use a fresh iteration read after PR validation');
+});
+
+test('Stale repository or iteration tips discard early work and reload the authoritative current PR',async t=>{
+ for(const stale of ['repository','source','target'])await t.test(stale,async()=>{
+  const fixture=smallRepositoryFixture(),{client}=fixture,metadata=client.getPullRequestById,iterations=client.getPullRequestIterations,diff=client.getCommitDiffs;
+  const metadataGate=gate(),diffStarted=gate(),calls=[];let iterationReads=0;
+  client.getPullRequestById=async(...args)=>{await metadataGate.promise;return metadata(...args);};
+  client.getPullRequestIterations=async(...args)=>{
+   const result=await iterations(...args);
+   if(iterationReads++===0&&stale!=='repository')result[0][stale==='source'?'sourceRefCommit':'targetRefCommit'].commitId='9'.repeat(40);
+   return result;
+  };
+  client.getCommitDiffs=async(...args)=>{calls.push(args);if(calls.length===1){diffStarted.resolve();throw new Error('Stale prefetch failed');}return diff(...args);};
+  const unhandled=[],onUnhandled=error=>unhandled.push(error);process.on('unhandledRejection',onUnhandled);
+  const loading=loadPullRequest({client,project:'project',repositoryId:Promise.resolve(stale==='repository'?'another-repo':'repo')},2620);
+  try{
+   await until(diffStarted.promise);await turn();metadataGate.resolve();
+   const actual=await loading,expected=await loadFixture(smallRepositoryFixture());
+   assert.deepEqual(normalized(actual),normalized(expected));assert.equal(calls.length,2);await turn();assert.deepEqual(unhandled,[]);
+  }finally{metadataGate.resolve();process.off('unhandledRejection',onUnhandled);}
+ });
+});
+
+test('Unavailable or slow repository hints never hold up normal PR loading',async()=>{
+ for(const hint of [Promise.resolve(null),new Promise(()=>{})]){
+  const fixture=smallRepositoryFixture();
+  assert.deepEqual(normalized(await loadPullRequest({client:fixture.client,project:'project',repositoryId:hint},2620)),normalized(await loadFixture(smallRepositoryFixture())));
+ }
+});
+
+test('Matching early diff failures remain visible and a failed current PR never accepts prefetched data',async()=>{
+ for(const phase of ['diff','metadata']){
+  const fixture=smallRepositoryFixture(),{client}=fixture,metadata=client.getPullRequestById;
+  const metadataGate=gate(),diffStarted=gate();
+  client.getPullRequestById=async(...args)=>{await metadataGate.promise;if(phase==='metadata')throw new Error('Current PR denied');return metadata(...args);};
+  client.getCommitDiffs=async()=>{diffStarted.resolve();throw new Error('Immutable diff denied');};
+  const loading=loadPullRequest({client,project:'project',repositoryId:Promise.resolve('repo')},2620);
+  const rejected=assert.rejects(loading,phase==='metadata'?/Current PR denied/:/Immutable diff denied/);
+  try{await until(diffStarted.promise);}finally{metadataGate.resolve();}
+  await rejected;
+ }
+});
+
+test('Small-review root snapshot and tree failures fall back without losing any review context',async t=>{
+ const expected=normalized(await loadFixture(smallRepositoryFixture({scoped:false})));
+ for(const failure of ['invalid-entry','tree-rejected'])await t.test(failure,async()=>{
   const fixture=smallRepositoryFixture({failure});assert.deepEqual(normalized(await loadFixture(fixture)),expected);
   assert.ok(fixture.treeCalls.some(args=>args[4]===true),'Fallback reads the full immutable trees');
  });
+ await assert.rejects(loadFixture(smallRepositoryFixture({failure:'wrong-commit'})),/commit metadata does not match/);
  const full=smallRepositoryFixture({scoped:false,truncated:true}),small=smallRepositoryFixture({truncated:true});
  assert.deepEqual(normalized(await loadFixture(small)),normalized(await loadFixture(full)));
 });

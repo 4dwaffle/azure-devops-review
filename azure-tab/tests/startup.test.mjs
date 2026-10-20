@@ -48,3 +48,20 @@ test('Hosts without PR context retain manual ID loading without an eager request
   assert.equal((await run.state.load(run.connection,8)).pr.pullRequestId,8);assert.deepEqual(run.calls,[8]);
  }finally{await run.close();}
 });
+
+test('SDK connection obtains a supported repository hint without blocking startup on the host service',async()=>{
+ const azureSource=await readFile(new URL('../src/azure.mjs',import.meta.url),'utf8');
+ const connectSource=azureSource.slice(azureSource.indexOf('export function contextId'),azureSource.indexOf('export async function loadPullRequest'));
+ for(const failed of [false,true]){
+  const repository=gate(),key='connect'+Math.random(),calls=[],client={};
+  globalThis[key]={client,SDK:{init:()=>{},ready:async()=>{},getConfiguration:()=>({pullRequestId:7}),notifyLoadSucceeded:async()=>{},getUser:()=>({id:'user'}),getHost:()=>({id:'org'}),getService:async id=>{
+   calls.push(id);if(id==='repository'){if(failed)throw new Error('Host service unavailable');return {getCurrentGitRepository:()=>repository.promise};}
+   if(id==='project')return {getProject:async()=>({id:'project'})};throw new Error('Unexpected service');
+  }}};
+  try{
+   const {connect}=await import(moduleUrl(`const {SDK,client}=globalThis[${JSON.stringify(key)}];const getClient=()=>client,GitRestClient={},CommonServiceIds={ProjectPageService:'project'},GitServiceIds={VersionControlRepositoryService:'repository'};\n`+connectSource));
+   const connection=await connect();assert.equal(connection.pullRequestId,7);assert.equal(connection.client,client);assert.ok(calls.includes('repository'));
+   repository.resolve({id:'repo'});assert.equal(await connection.repositoryId,failed?null:'repo');
+  }finally{delete globalThis[key];repository.resolve(null);}
+ }
+});
