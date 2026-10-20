@@ -67,7 +67,8 @@ jobs:
     name: Publish private Marketplace extension
     needs: [version, release]
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # Allow the explicit 15-minute validation wait plus setup and upload time.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
         with:
