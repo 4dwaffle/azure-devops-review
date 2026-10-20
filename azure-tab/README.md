@@ -37,6 +37,25 @@ PR discovery checks SDK configuration, then the host navigation route's `pullReq
 - The embedded tab does not duplicate Azure’s PR title or state badges.
 - Shortcuts: `Ctrl+P` search, `J`/`K` next/previous file, `V` toggle viewed. In either editor pane, double-click a word and press `Ctrl+F` (`Cmd+F` on macOS) to search that string throughout the current file. `Enter`/`Shift+Enter` navigate matches; `Escape` closes Find. Find also works in inline layout and is bundled locally without inference. Editor input keeps Monaco's own key handling. Next/previous diff buttons navigate changed hunks.
 
+## Review order from the PR description
+
+A Markdown heading named `Review order` or `ReviewOrder` in the PR description enables ordering in the existing folder tree automatically when at least one listed path matches. Use numbered or bulleted entries with repository-relative paths in backticks, as plain paths, or as Markdown link labels. Text after a spaced dash is the review note, shown on hover over each preceding named file in that entry. Notes are plain text and remain available in normal ordering too. Full paths match exactly and case-sensitively; a short path or filename matches only when unique among changed files, including rename origins. Duplicate references appear once. Fenced examples and subsequent sections are excluded.
+
+The sidebar's **Order → Review order** reorders the normal folder tree; it does not create a separate list or section. Folders stay together and take the position of their earliest listed descendant. Within each folder, ranked files and folders come first; unlisted siblings follow in the normal alphabetical, folders-first order. Consequently, a folder's files stay grouped when the description interleaves paths from different folders. The initial file, next/previous buttons and J/K shortcuts follow this tree order, including files in collapsed folders. Folder collapse and reviewed checkboxes work in both modes. Search and ignore filters retain their usual behavior; ordering never reveals ignored files automatically or marks files reviewed.
+
+**Order → Folders (normal)** restores ordinary alphabetical tree sorting. The selected order is remembered locally for each PR across refreshes. An absent, empty or entirely unmatched review order falls back to normal ordering with all changed files available under the usual filters. A partial order keeps unlisted files at the bottom of their respective folders, and entirely unlisted folders follow ranked siblings. The selector tooltip reports missing or ambiguous paths.
+
+For example:
+
+```markdown
+## Review order
+
+1. `src/Logic/Handler.cs` — implementation.
+2. `src/Tests/HandlerTests.cs` — tests.
+```
+
+Prose such as “resources” does not identify a group: list the resource paths explicitly. Glob patterns and natural-language instructions are not interpreted. This changes only the extension's local presentation; it does not write PR metadata or change Azure's native Files tab.
+
 ## Inline comments and recovery
 
 Select one or multiple contiguous code lines in either original/modified Monaco pane, then use **Add comment**, **Ctrl/Cmd+M**, or **Add review comment on selected lines** in its editor context menu. The composer retains the selected side and exact range; a selection ending at the beginning of the following line excludes that trailing line. Coordinates, immutable commits, merge base, fingerprint and iteration are saved with the browser-local draft; drafts survive navigation and reloads. Before publishing, the adapter rechecks active PR commits and the latest iteration, pages that iteration's common-base changes, validates the canonical path/rename and unique change-tracking ID, and rechecks the PR immediately before one SDK POST. A server-side update can still race this final guard; Azure exposes no conditional thread-write API here.
