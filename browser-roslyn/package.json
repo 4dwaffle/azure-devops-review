@@ -1,5 +1,6 @@
 {
   "name": "review-browser-roslyn-probe",
+  "description": "Standalone Windows Edge probe for browser-local WasmSharp/Roslyn compiler diagnostics.",
   "private": true,
   "type": "module",
   "scripts": {"test": "node test.mjs"},

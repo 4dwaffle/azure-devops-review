@@ -1,5 +1,6 @@
 {
  "name": "azure-filtered-review",
+ "description": "Azure DevOps PR review tab with Monaco diffs, local ignore filters, browser Roslyn verification, and explicit inline comments.",
  "private": true,
  "type": "module",
  "version": "0.1.13",
