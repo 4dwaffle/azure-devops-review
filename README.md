@@ -55,6 +55,12 @@ npm run test:browser-roslyn
 
 [CI](.github/workflows/ci.yml) runs for pull requests to `main`, merge groups, and manual dispatch. It tests shared logic, the native companion, the extension, and the browser Roslyn probe, then uploads one VSIX and `SHA256SUMS.txt` as the `release-packages` workflow artifact.
 
-[CD](.github/workflows/cd.yml) runs on pushes to `main`, reuses CI with an allocated release version, and publishes the validated VSIX and checksums to a versioned GitHub Release. Local packaging uses the source manifest's version; CD overrides the generated package manifest's version. GitHub release versions and manually uploaded Marketplace versions can therefore differ. Check the [workflow runs](https://github.com/4dwaffle/azure-devops-review/actions) for validation and publication status.
+[CD](.github/workflows/cd.yml) runs on pushes to `main`, reuses CI with an allocated `0.2.${GITHUB_RUN_NUMBER}` release version, and publishes the validated VSIX and `SHA256SUMS.txt` to a versioned GitHub Release. Local packaging uses the source manifest's version; CD overrides the generated package manifest's version.
 
-The workflows do not publish to the Marketplace or install the extension in an organization. No Copilot Canvas archive is produced.
+Private Marketplace publication is added by [PR #13](https://github.com/4dwaffle/azure-devops-review/pull/13). It requires that workflow change to be merged to `main`, a repository Actions secret named `VS_MARKETPLACE_TOKEN` with Marketplace Publish access for publisher `VaclavBerny`, and a successful main CD run. Until the change is merged and credentials are configured, publication remains GitHub-only.
+
+After the GitHub Release succeeds, the Marketplace stage uses the same checksummed VSIX and release version, preserves private visibility, and requires successful Marketplace validation. Reruns check whether that version already exists before uploading. A successful GitHub Release alone does not establish Marketplace publication; check both stages in [Actions](https://github.com/4dwaffle/azure-devops-review/actions).
+
+The shared Marketplace publishing tests run through `npm test`, require PowerShell 7 (`pwsh`), and mock the publishing calls. They do not upload an extension.
+
+Organization sharing and installation remain manual. Local packaging does not publish, and no Copilot Canvas archive is produced.
