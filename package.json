@@ -8,8 +8,7 @@
     "package": "npm run package --prefix azure-tab",
     "test": "npm run test:core && npm run test:extension",
     "test:core": "node --test tests/*.test.mjs",
-    "test:extension": "npm test --prefix azure-tab",
-    "test:browser-roslyn": "npm test --prefix browser-roslyn"
+    "test:extension": "npm test --prefix azure-tab"
   },
   "dependencies": {"fast-xml-parser": "5.11.2", "editorconfig": "3.0.2"}
 }
