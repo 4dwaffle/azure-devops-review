@@ -14,4 +14,5 @@ test('Marketplace packages the UI and workers without compiler runtimes or assem
  for(const file of modules)assert.equal(file.contentType,'application/javascript',file.path);
  assert.deepEqual(manifest.files.filter(file=>/\.(?:wasm|dll|pdb|dat|cs)$|roslyn|comlink/i.test(file.path)),[]);
  assert.ok(manifest.files.some(file=>file.path.includes('licenses/monaco-editor-')),'Retain licenses for shipped components');
+ assert.ok(manifest.files.some(file=>file.path.includes('licenses/fflate-')),'Retain the bulk ZIP decoder license');
 });

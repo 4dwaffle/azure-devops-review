@@ -12,6 +12,7 @@
  "dependencies": {
   "azure-devops-extension-sdk": "4.2.0",
   "azure-devops-extension-api": "5.279.1",
+  "fflate": "0.8.3",
   "monaco-editor": "0.52.2",
   "path-browserify": "1.0.1",
   "picomatch": "4.0.7"
