@@ -1,23 +1,23 @@
 # Azure DevOps Filtered Review
 
-A private Azure DevOps extension that adds a **Filtered Review** pull-request tab beside Azure's native **Files** tab. This repository is focused on the Azure DevOps extension; the former Copilot canvas runtime is no longer included or packaged.
+A privately distributed Azure DevOps extension that adds a **Filtered Review** pull-request tab beside Azure's native **Files** tab. The GitHub repository is public; the extension manifest has `public: false`. The former GitHub Copilot Canvas runtime has been removed and is no longer packaged.
 
 ## Features
 
 - Read-only Monaco diffs of immutable merge-base and source commits, with side-by-side and inline layouts.
-- Configurable ignore filters for generated code, designers, migrations, resources, formatting, and conservative rename propagation.
-- Browser Roslyn verification; unresolved or unsupported changes remain visible.
+- Configurable ignores for generated code, designers, migrations, resources, custom path globs, file moves, and project-reference path renames.
+- Browser Roslyn verification for C# formatting, using directives, and rename references. Unresolved changes remain visible; namespace text matching is a separate opt-in policy.
 - Dependency diagrams for changed manifests and explicit C# imports.
 - Durable browser-local file and folder review progress.
 - Inline comment drafts with explicit publication, snapshot validation, cross-tab locking, and uncertain-write recovery.
 
 The extension does not replace Azure's Files tab, synchronize native reviewed state, or invoke an AI agent. Ordinary browsing, filtering, progress, and diagrams do not write to Azure. Comment publication is explicit and requires `vso.code_write`.
 
-See [extension documentation](azure-tab/README.md) for installation, filter semantics, limitations, comment recovery, and published versions.
+See [extension documentation](azure-tab/README.md) for installation, filter semantics, limitations, and comment recovery. Download CI-produced packages from [GitHub Releases](https://github.com/4dwaffle/azure-devops-review/releases).
 
 ## Develop and package
 
-Requires Node.js 22+. From the repository root:
+Requires Node.js 22+ (CI uses Node.js 24). From the repository root:
 
 ```powershell
 npm ci
@@ -27,9 +27,9 @@ npm run build
 npm run package
 ```
 
-`npm test` runs the shared analysis/companion tests and the extension suite. Browser tests use Microsoft Edge; set `REVIEW_BROWSER` to another Chromium executable if needed. Tests use local fixtures and mocked comment writes, not unsolicited Azure comments. Native companion tests require the .NET 10 SDK and Git; unavailable prerequisites can cause tests to skip.
+`npm test` runs the shared analysis/companion tests and the extension suite. The full suite requires Windows with Microsoft Edge at `C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe`, Git, and a stable .NET 10 SDK with its reference pack. Browser launch paths are hard-coded in the tests; `REVIEW_BROWSER` does not override them. .NET-dependent tests skip when no .NET 10 SDK is detected. Tests use local fixtures and mocked comment writes.
 
-`npm run package` builds the self-contained VSIX under `azure-tab\artifacts`. The source manifest is `azure-tab\vss-extension.json`; `vss-extension.package.json` is generated and must not be edited. Bundled assets include their license notices. Keep the extension private; uploading, organization sharing, and installation are separate manual operations described in the extension documentation.
+`npm run build` bundles the tab and browser workers; `npm run package` rebuilds them and creates a self-contained VSIX under `azure-tab\artifacts`. Packaging needs Node.js and the root/extension dependencies, without Edge or .NET. The source manifest is `azure-tab\vss-extension.json`; `vss-extension.package.json` is generated and must not be edited. Bundled assets include their license notices. Uploading, organization sharing, and installation are separate manual operations described in the extension documentation.
 
 ## Repository layout
 
@@ -53,4 +53,8 @@ npm run test:browser-roslyn
 
 ## CI and releases
 
-CI validates shared logic, the native companion, the Azure DevOps extension, and the browser Roslyn probe, then builds and packages one VSIX with SHA-256 checksums. CD runs the same validation on `main` and publishes the VSIX and checksums to a versioned GitHub Release. No Copilot canvas archive is produced. These workflows do not publish to the Marketplace or install the extension in an organization.
+[CI](.github/workflows/ci.yml) runs for pull requests to `main`, merge groups, and manual dispatch. It tests shared logic, the native companion, the extension, and the browser Roslyn probe, then uploads one VSIX and `SHA256SUMS.txt` as the `release-packages` workflow artifact.
+
+[CD](.github/workflows/cd.yml) runs on pushes to `main`, reuses CI with an allocated release version, and publishes the validated VSIX and checksums to a versioned GitHub Release. Local packaging uses the source manifest's version; CD overrides the generated package manifest's version. GitHub release versions and manually uploaded Marketplace versions can therefore differ. Check the [workflow runs](https://github.com/4dwaffle/azure-devops-review/actions) for validation and publication status.
+
+The workflows do not publish to the Marketplace or install the extension in an organization. No Copilot Canvas archive is produced.
