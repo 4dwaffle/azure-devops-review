@@ -4,7 +4,9 @@ A privately distributed Azure DevOps extension adding a **Filtered Review** pull
 
 ## Versions and distribution
 
-Download validated VSIX packages and `SHA256SUMS.txt` from [GitHub Releases](https://github.com/4dwaffle/azure-devops-review/releases). Release assets are downloads, not Marketplace installations. Local builds use the version in [`vss-extension.json`](vss-extension.json); CD supplies its release version to the generated package manifest. The extension ID, publisher and private visibility remain defined by the source manifest.
+Download validated VSIX packages and `SHA256SUMS.txt` from [GitHub Releases](https://github.com/4dwaffle/azure-devops-review/releases). Local builds use the version in [`vss-extension.json`](vss-extension.json); CD supplies its release version to the generated package manifest. The extension ID, publisher and private visibility remain defined by the source manifest.
+
+[PR #13](https://github.com/4dwaffle/azure-devops-review/pull/13) adds private Marketplace publication of the same validated VSIX after the GitHub Release. This requires the workflow change to be merged to `main`, the `VS_MARKETPLACE_TOKEN` Actions secret with Marketplace Publish access for `VaclavBerny`, and a successful main CD run. Until those prerequisites are met, GitHub downloads do not imply a Marketplace update. The Marketplace stage checks existing versions on reruns and requires successful validation. See the [release workflow documentation](../README.md#ci-and-releases).
 
 ## Build and install
 
@@ -18,7 +20,7 @@ npm run package
 
 The package appears under `azure-tab/artifacts`; Edge and the native .NET SDK are needed for tests, not packaging. `build.mjs` generates `vss-extension.package.json` from the source manifest, enumerating JavaScript (including transitive `.mjs`), WASM and binary assets with explicit MIME types; do not edit the generated manifest. Bundled license notices are retained under `azure-tab/dist/licenses`.
 
-The publisher is `VaclavBerny` and the extension ID is `azure-filtered-review`. Keep `public: false`. With access to that Marketplace publisher, upload the VSIX privately, share it with the intended organization, and install it through **Organization settings → Extensions**. A different publisher requires its own publisher ID in the source manifest and a rebuilt package. Neither local packaging nor GitHub CD uploads, shares or installs the extension. The requested Azure scope is `vso.code_write` for explicit comment publication; an upgrade may require organization permission approval. Browsing remains read-only.
+The publisher is `VaclavBerny` and the extension ID is `azure-filtered-review`. Keep `public: false`. Once a version is validated in the Marketplace, share it manually with the intended organization and install it through **Organization settings → Extensions**. CD does not share or install the extension. Local packaging creates a VSIX without uploading it; a private manual upload remains possible with publisher access. A different publisher requires its own publisher ID in the source manifest and a rebuilt package. The requested Azure scope is `vso.code_write` for explicit comment publication; an upgrade may require organization permission approval. Browsing remains read-only.
 
 PR discovery checks SDK configuration, then the host navigation route's `pullRequestId`. If neither exposes an ID, enter it in the tab's PR-ID form. After installation, verify the actual organization's PR context, iframe policies and browser behavior; local fixtures and a successful VSIX build do not establish host compatibility.
 
