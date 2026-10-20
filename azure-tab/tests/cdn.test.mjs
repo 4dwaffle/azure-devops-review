@@ -12,13 +12,18 @@ test('Deployed CDN: packaged UI and compiler-free text-analysis worker', {skip:!
   const page=await browser.newPage();
   const errors=[];page.on('pageerror',error=>errors.push(String(error)));
   await page.goto(base+'/dist/styles.css',{waitUntil:'domcontentloaded',timeout:30000});
-  const deployed=await page.evaluate(async()=>{
-   const response=await fetch('./app.js');if(!response.ok)throw new Error('Deployed UI unavailable');
-   const bytes=await response.arrayBuffer(),source=new TextDecoder().decode(bytes);
-   return {sha256:Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes)),byte=>byte.toString(16).padStart(2,'0')).join(''),moveLabel:source.includes('Moved + renamed'),filterLabel:source.includes('File moves (identical contents)'),namespaceLabel:source.includes('Namespace rename propagation (text-only)')};
-  });
-  const bundled=await readFile(new URL('../dist/app.js',import.meta.url));
-  assert.equal(deployed.sha256,createHash('sha256').update(bundled).digest('hex'),'CDN must serve the exact packaged UI');
+  const manifest=JSON.parse(await readFile(new URL('../vss-extension.package.json',import.meta.url),'utf8'));
+  const expected=await Promise.all(manifest.files.filter(file=>file.path.endsWith('.js')).map(async file=>({path:file.path.slice(5),sha256:createHash('sha256').update(await readFile(new URL('../'+file.path,import.meta.url))).digest('hex')})));
+  const deployed=await page.evaluate(async expected=>{
+   const scripts=await Promise.all(expected.map(async file=>{
+    const response=await fetch('./'+file.path);if(!response.ok)throw new Error('Deployed script unavailable: '+file.path);
+    const bytes=await response.arrayBuffer();
+    return {path:file.path,sha256:Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes)),byte=>byte.toString(16).padStart(2,'0')).join(''),source:new TextDecoder().decode(bytes)};
+   }));
+   const source=scripts.map(file=>file.source).join('\n');
+   return {hashes:scripts.map(({path,sha256})=>({path,sha256})),moveLabel:source.includes('Moved + renamed'),filterLabel:source.includes('File moves (identical contents)'),namespaceLabel:source.includes('Namespace rename propagation (text-only)')};
+  },expected);
+  assert.deepEqual(deployed.hashes,expected,'CDN must serve every exact packaged module and worker');
   assert.equal(deployed.moveLabel,true);assert.equal(deployed.filterLabel,true);assert.equal(deployed.namespaceLabel,true);
   const propagation=await page.evaluate(()=>new Promise((resolve,reject)=>{
    const worker=new Worker(new URL('./analysis-worker.js',location.href),{type:'module'}),timer=setTimeout(()=>{worker.terminate();reject(new Error('Deployed namespace worker timed out'));},15000);

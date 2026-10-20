@@ -13,7 +13,7 @@ const plugins=[{name:'browser-review-core',setup(builder){
  builder.onLoad({filter:/[\\/]analysis\.mjs$/},async args=>({contents:(await readFile(args.path,'utf8')).replace("Buffer.byteLength(text, 'utf8')","new TextEncoder().encode(text).length"),loader:'js'}));
  builder.onLoad({filter:/generated-code\.mjs$/},()=>({contents:generated.slice(0,generated.indexOf('export function generatedClassifier')).replace("import { posix, resolve, sep } from 'node:path';","import { posix } from 'node:path';").replace("import { parseFromFilesSync } from 'editorconfig';",'')+'\nexport function generatedClassifier() { return () => null; }',loader:'js'}));
 }}];
-await bundle({entryPoints:[resolve(root,'src',testUi?'app.mjs':'main.mjs')],bundle:true,outfile:resolve(out,'app.js'),format:'esm',platform:'browser',plugins,minify:true,loader:{'.ttf':'file'},legalComments:'linked'});
+await bundle({entryPoints:[resolve(root,'src',testUi?'app.mjs':'main.mjs')],bundle:true,...(testUi?{outfile:resolve(out,'app.js')}:{outdir:out,entryNames:'app',chunkNames:'[name]-[hash]',splitting:true}),format:'esm',platform:'browser',plugins,minify:true,loader:{'.ttf':'file'},legalComments:'linked'});
 await bundle({entryPoints:[resolve(root,'src','analysis-worker.mjs')],bundle:true,outfile:resolve(out,'analysis-worker.js'),format:'esm',platform:'browser',plugins,minify:true,legalComments:'linked'});
 await bundle({entryPoints:[resolve(root,'node_modules','monaco-editor','esm','vs','editor','editor.worker.js')],bundle:true,outfile:resolve(out,'editor.worker.js'),format:'esm',platform:'browser',minify:true,legalComments:'linked'});
 for(const file of ['index.html','styles.css']) await cp(resolve(root,'src',file),resolve(out,file));
