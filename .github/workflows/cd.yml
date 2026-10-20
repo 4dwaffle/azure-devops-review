@@ -44,7 +44,7 @@ jobs:
       RELEASE_VERSION: ${{ needs.version.outputs.version }}
       RELEASE_COMMIT: ${{ github.sha }}
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: release-packages
           path: packages
@@ -69,10 +69,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: '24'
           cache: npm
@@ -85,7 +85,7 @@ jobs:
           if (!$env:VS_MARKETPLACE_TOKEN) { throw 'Set the VS_MARKETPLACE_TOKEN Actions secret with Marketplace publishing access to publisher VaclavBerny.' }
       - name: Install locked publishing tools
         run: npm ci --prefix azure-tab --no-audit --no-fund
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: release-packages
           path: packages
