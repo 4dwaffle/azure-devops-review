@@ -1,5 +1,124 @@
 # Azure DevOps Filtered Review
 
+A privately distributed Azure DevOps extension adding a **Filtered Review** pull-request tab beside the native **Files** tab. It provides immutable Monaco diffs, local ignore filters, browser-local progress, dependency diagrams, and explicitly published inline comments. The former GitHub Copilot Canvas runtime is no longer included.
+
+## Versions and distribution
+
+Download validated VSIX packages and `SHA256SUMS.txt` from [GitHub Releases](https://github.com/4dwaffle/azure-devops-review/releases). Release assets are downloads, not Marketplace installations. Local builds use the version in [`vss-extension.json`](vss-extension.json); CD supplies its release version to the generated package manifest. The extension ID, publisher and private visibility remain defined by the source manifest.
+
+## Build and install
+
+Requires Node.js 22+ (CI uses Node.js 24). From the repository root, install the shared analysis dependencies as well as the tab's dependencies:
+
+```powershell
+npm ci
+npm ci --prefix azure-tab
+npm run package
+```
+
+The package appears under `azure-tab/artifacts`; Edge and the native .NET SDK are needed for tests, not packaging. `build.mjs` generates `vss-extension.package.json` from the source manifest, enumerating JavaScript (including transitive `.mjs`), WASM and binary assets with explicit MIME types; do not edit the generated manifest. Bundled license notices are retained under `azure-tab/dist/licenses`.
+
+The publisher is `VaclavBerny` and the extension ID is `azure-filtered-review`. Keep `public: false`. With access to that Marketplace publisher, upload the VSIX privately, share it with the intended organization, and install it through **Organization settings → Extensions**. A different publisher requires its own publisher ID in the source manifest and a rebuilt package. Neither local packaging nor GitHub CD uploads, shares or installs the extension. The requested Azure scope is `vso.code_write` for explicit comment publication; an upgrade may require organization permission approval. Browsing remains read-only.
+
+PR discovery checks SDK configuration, then the host navigation route's `pullRequestId`. If neither exposes an ID, enter it in the tab's PR-ID form. After installation, verify the actual organization's PR context, iframe policies and browser behavior; local fixtures and a successful VSIX build do not establish host compatibility.
+
+## Review
+
+- Immutable source and target commits from PR metadata; `diffCommonCommit: true`, paginated diff results and an explicit merge base. Files are loaded from the merge-base and source commits, never moving branch refs.
+- Monaco read-only diffs with a **View** selector for side-by-side or inline layout, remembered across files and reloads. Drag the file-tree divider to resize the sidebar, or focus it and use arrow keys (Shift for larger steps), Home/End; double-click resets. Width is remembered and clamped to the available viewport. Reviewed counts and the progress meter appear at the left of the toolbar. Original rename paths and Git blob identities/modes come from immutable metadata. Binary, symlink and non-regular Git objects direct you to native Files. Failed reads remain visible and cannot be silently marked viewed.
+- The compact toolbar avoids repeating Azure’s PR title. **Ignore filters** opens a popover. Resource files, formatting-only, using-directive-only, repeated rename references, generated code, designers, migrations and custom globs are configurable. **Show ignored** does not change progress totals.
+- The file tree uses nested indentation, collapsible directory icons and file-type icons. Search reveals collapsed matches.
+- Renames, directory moves and combined moves/renames are labeled separately, with the original → destination path shown above the diff and in row tooltips. Search matches either path. Azure's separate addition/deletion rows are paired only when exactly one of each has the same immutable regular-file blob ID and the old path actually disappears. Duplicate-content ambiguity, missing metadata, copies and changed-content addition/deletion pairs remain separate. Explicit Azure renames retain their content edits; mode changes stay visible. Original and destination EditorConfig ancestors are both loaded. This is exact path-change detection, not proof that relocation preserves runtime or build behavior.
+- Files and folders have left-side **Reviewed** checkboxes for immediate durable progress. A folder checkbox applies atomically to every non-ignored descendant, including collapsed and search-hidden files; mixed state means some descendants are reviewed. Ignored files remain untouched even when shown, and folders with missing file fingerprints cannot be marked. Failed storage writes restore the persisted state without expanding the folder, and the toolbar stays synchronized. These are progress controls, not file multiselect; merely opening a file does not mark it reviewed.
+- Counts are `reviewed non-ignored / non-ignored · ignored`. Search also does not change these totals. Each left-side checkbox saves that file’s reviewed state immediately.
+- Browser-local progress is scoped to organization, user, repository and PR. Contents, rename paths and Git modes invalidate reviewed fingerprints; unrelated PR updates do not erase unchanged files. Clearing site storage removes progress. This is not synchronized with Azure's native viewed state.
+- **Dependencies** displays manifest declarations and explicit C# using directives independently of ignore filters, with owner-file navigation and an option to show unchanged connections. C# import edges are syntax-only, not resolved symbol dependencies. Unsupported source syntax is reported explicitly. Diagrams are bounded to 200 connections and 20 displayed warnings; complete immutable diffs remain available. This is not a full call graph or transitive dependency graph.
+- Existing file and general review comments are displayed as plain text. Azure system activity (such as branch updates) is hidden; human replies in mixed threads remain visible. Iteration context is available on hover rather than repeated headings. Current-iteration line links navigate the immutable diff; historical or out-of-range positions cannot navigate.
+- The embedded tab does not duplicate Azure’s PR title or state badges.
+- Shortcuts: `Ctrl+P` search, `J`/`K` next/previous file, `V` toggle viewed. In either editor pane, double-click a word and press `Ctrl+F` (`Cmd+F` on macOS) to search that string throughout the current file. `Enter`/`Shift+Enter` navigate matches; `Escape` closes Find. Find also works in inline layout and is bundled locally without inference. Editor input keeps Monaco's own key handling. Next/previous diff buttons navigate changed hunks.
+
+## Review order from the PR description
+
+A Markdown heading named `Review order` or `ReviewOrder` in the PR description enables ordering in the existing folder tree automatically when at least one listed path matches. Use numbered or bulleted entries with repository-relative paths in backticks, as plain paths, or as Markdown link labels. Text after a spaced dash is the review note, shown on hover over each preceding named file in that entry. Notes are plain text and remain available in normal ordering too. Full paths match exactly and case-sensitively; a short path or filename matches only when unique among changed files, including rename origins. Duplicate references appear once. Fenced examples and subsequent sections are excluded.
+
+The sidebar's **Order → Review order** reorders the normal folder tree; it does not create a separate list or section. Folders stay together and take the position of their earliest listed descendant. Within each folder, ranked files and folders come first; unlisted siblings follow in the normal alphabetical, folders-first order. Consequently, a folder's files stay grouped when the description interleaves paths from different folders. The initial file, next/previous buttons and J/K shortcuts follow this tree order, including files in collapsed folders. Folder collapse and reviewed checkboxes work in both modes. Search and ignore filters retain their usual behavior; ordering never reveals ignored files automatically or marks files reviewed.
+
+**Order → Folders (normal)** restores ordinary alphabetical tree sorting. The selected order is remembered locally for each PR across refreshes. An absent, empty or entirely unmatched review order falls back to normal ordering with all changed files available under the usual filters. A partial order keeps unlisted files at the bottom of their respective folders, and entirely unlisted folders follow ranked siblings. The selector tooltip reports missing or ambiguous paths.
+
+For example:
+
+```markdown
+## Review order
+
+1. `src/Logic/Handler.cs` — implementation.
+2. `src/Tests/HandlerTests.cs` — tests.
+```
+
+Prose such as “resources” does not identify a group: list the resource paths explicitly. Glob patterns and natural-language instructions are not interpreted. This changes only the extension's local presentation; it does not write PR metadata or change Azure's native Files tab.
+
+## Inline comments and recovery
+
+Select one or multiple contiguous code lines in either original/modified Monaco pane, then use **Add comment**, **Ctrl/Cmd+M**, or **Add review comment on selected lines** in its editor context menu. The composer retains the selected side and exact range; a selection ending at the beginning of the following line excludes that trailing line. Coordinates, immutable commits, merge base, fingerprint and iteration are saved with the browser-local draft; drafts survive navigation and reloads. Before publishing, the adapter rechecks active PR commits and the latest iteration, pages that iteration's common-base changes, validates the canonical path/rename and unique change-tracking ID, and rechecks the PR immediately before one SDK POST. A server-side update can still race this final guard; Azure exposes no conditional thread-write API here.
+
+For inferred addition/deletion moves, preflight verifies both real iteration entries: original-side comments target the deleted path and its tracking ID, modified-side comments target the added path and its tracking ID. If iteration metadata instead confirms an explicit rename, Azure's rename tracking is used. Missing, ambiguous or changed mappings block publication; tracking IDs are never fabricated. Threads on either path remain visible.
+
+Draft edits, publication and discard use browser Web Locks to serialize tabs. Draft persistence must succeed before any POST. Known validation/permission refusals remain editable. Network errors, response timeouts, unexpected responses or interrupted submissions become **uncertain**, never automatically retried. **Check publication** performs a read-only exact match against the saved payload and the signed-in author's root comment, then marks one unique matching thread published. Replies, missing author identities, another reviewer's identical comment, and zero or multiple matches remain uncertain. After checking native Files, the explicit archive action retains the uncertain draft in local browser storage before clearing the composer. It does not cancel an in-flight write or establish that posting failed. Corrupt drafts are preserved and block commenting without blocking review. Clearing site storage loses drafts/history.
+
+Automated comment tests use a local mock and the actual SDK serializer. They do not post to live Azure PRs; successful fixtures do not establish live comment-write behavior.
+
+## Project-reference rename propagation
+
+The default-on **Project-reference path renames** filter hides pure `ProjectReference Include` path propagation when an unambiguous project move/rename in the PR maps the resolved old/new targets. Valid XML and byte-identical text outside those paths are required. Conditions, metadata, packages, comments, unknown targets and mixed edits stay visible. This filter is independent of C# rename verification and dependency diagrams.
+
+## Optional namespace propagation filter
+
+Enable **Ignore filters → Namespace rename propagation (text-only)** to hide exact namespace substitutions, including namespace-only edits in moved/renamed declaration files. This independent preference is **off by default**, including for existing users. The popover shows the inferred old → new namespace mapping and candidate count. When disabled, a visible notice links to this setting without silently changing preferences. Identical warning pragmas can be excluded from tokenization only while retaining exact raw-source replacement checks, covering the moved `SchedulePartEntity.cs`. Changed pragmas and conditional directives remain unsupported. Show ignored reveals suppressed files without marking them reviewed or affecting comments, drafts or progress.
+
+Mappings require matching namespace/type declarations and reject conflicts. Candidates must pass both token comparison and exact source-text replacement. If the complete body cannot be tokenized, a validated leading using-directive header can instead be compared while requiring the entire remaining body to be byte-identical. This covers import-only changes in files such as `UpdateMachineUseCase.cs` containing unchanged interpolated strings, directives or large bodies. Mixed edits, changed literals/comments, mode changes, read errors, ambiguous mappings and unsupported changes outside that header remain visible. Analysis and diagrams run in the worker; toggling the filter is local and inference-free, requires no new API reads, and works even if Roslyn is unavailable. It is a text-only policy, **not compiler equivalence**: runtime binding, reflection, `nameof` and caller-information effects are not verified. Review namespace origins and dependency diagrams before enabling it. Existing compiler-verified rename filtering is unchanged.
+
+## Optional local compiler companion
+
+**Ignore filters → Local compiler companion** accepts a private loopback capability URL, or an empty value to disable it. The companion is experimental and off by default. See the [setup and complete trusted profile contract](../companion/README.md). It compiles immutable sources and pinned references using SDK Roslyn without executing PR project files, MSBuild or source generators. Browser/native verification runs concurrently; inaccessible endpoints, stale snapshots, unsupported options and unresolved contexts never hide additional files.
+
+Tests cover a synthetic 256-file PR beyond browser binding limits and HTTPS-to-loopback access in a synthetic cross-origin iframe after browser local-network permission. They do not establish the deployed Azure host's CSP or Permissions Policy. The browser sends identities and content hashes only, not code or local paths. Verification of a real PR requires a trusted complete profile for its exact commits.
+
+## Automatic browser Roslyn verification
+
+There is no diagnostics button. Lexical analysis proposes C# formatting, using-directive and repeated-rename candidates; a dedicated worker automatically initializes pinned WasmSharp 0.10.2 and the packaged .NET/Roslyn runtime only when candidates exist. While verification is pending, files remain visible and navigation stays responsive. There is no inference or external code transport.
+
+The shipped C# analyzer receives C# snapshot contents as base64-encoded data. Only that analyzer is executed; PR code is parsed, bound and emitted in memory, never loaded or invoked.
+
+- Formatting/using-only candidates are compiled as libraries with packaged references. All emitted assembly bytes must match except the random module GUID and PE timestamp. IL, metadata, attributes and caller-info constants remain part of the comparison. Original snapshots use their original rename paths, so observable `CallerFilePath` changes cannot be hidden as formatting/using equivalence.
+- Repeated type- and namespace-rename candidates require both changed-file snapshots to compile and each changed identifier to bind to the mapped old/new type. Unchanged name/type bindings and compiler-supplied optional arguments must also agree under that mapping. Changed caller file paths, line numbers and caller argument expressions stay visible, including constructor and attribute calls; unsupported implicit defaults remain unverified. Declaration origins remain visible. This is reference-binding verification, not a claim that the renamed type itself preserves behavior.
+- Syntax errors, preprocessor directives, missing references, ambiguous/shadowed renames and observable nameof rename changes are not verified. Unknown files stay visible. Worker/runtime failures and a 60-second analysis timeout keep unverified candidates visible. Complete rename-binding contexts are limited to 250 C# files / 4 million source characters; larger PRs use bounded 50-file / 4-million-character formatting/using batches. Unverified large-context renames stay visible rather than hiding files based on names alone.
+
+**Scope limitation:** this is a changed-file snapshot with packaged framework references, not the repository’s complete project compilation. Unchanged source files, project-specific references, build options, source generators and IDE analyzers are not loaded. Successful verification describes this browser compilation context, not a proof of whole-solution behavior or unused/dead-code detection. Explicit resource/generated/designer/migration/custom-glob ignores remain user policy, not semantic proof. Mode changes always remain visible.
+
+Assemblies, runtime, Comlink and Monaco workers are packaged locally. The organization's iframe/CSP must allow same-origin module workers and WASM. No SharedArrayBuffer or cross-origin isolation is required by the tested runtime. The desktop language-server executable is not used in the iframe.
+
+## Conservative classification
+
+Generated filename/header conventions are recognized. Relevant ancestor `.editorconfig` and root `.globalconfig` files are fetched from both immutable commits. If any explicit `generated_code` setting or uncertain configuration read is encountered, generated candidates stay visible with a warning rather than attempting incomplete EditorConfig semantics. Designer/migration filters remain separately user-controlled.
+
+The tab has no direct local Git/worktree access, Copilot CLI bridge, automatic inference or remote progress synchronization. The separately started optional companion reads only its explicitly configured local repository and compiler inputs. Ordinary navigation, filtering, progress and dependency diagrams do not invoke an AI agent.
+
+## Validation and third-party components
+
+From the repository root, `npm test` runs shared analysis/native companion tests followed by the extension suite. `npm run test:extension` runs only the extension suite. The standalone browser Roslyn probe has its own dependencies and command in the [root README](../README.md).
+
+The full suite requires Windows with Microsoft Edge at `C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe`, Git, and a stable .NET 10 SDK/reference pack. Test files hard-code the Edge path; `REVIEW_BROWSER` does not override it. .NET-dependent tests skip when no .NET 10 SDK is detected. Browser tests use a mocked Azure client and real Monaco, analysis workers and packaged Roslyn assets. Both diff and comment requests pass through the installed `GitRestClient` serializer. Tests cover conservative filtering, navigation, progress, drafts and uncertain publication recovery; packaging tests verify asset MIME metadata. They do not post live Azure comments or publish/install the extension.
+
+To check a published build, first run `npm run build` locally, then set `FILTERED_REVIEW_CDN_URL` to that build's exact publisher asset URI and run `node --test azure-tab/tests/cdn.test.mjs` from the repository root. The CDN UI must match the local production build. This opt-in test reads public CDN assets and compiles canned fixtures; it does not read PR code, post comments or change the installation. Normal test runs skip it.
+
+Uses Microsoft's MIT-licensed Azure DevOps extension SDK/API and Monaco, and Apache-2.0-licensed WasmSharp with .NET/Roslyn components. Bundled legal comments are retained; shipped vendor runtime files retain their original headers. See `azure-tab/dist/licenses` after building for included license notices.
+
+## Historical validation reports
+
+The retained reports below describe earlier builds, installations and PR snapshots. They are not statements of current Marketplace availability, installed versions or performance guarantees. Current GitHub packages and publication status are available from [Releases](https://github.com/4dwaffle/azure-devops-review/releases) and [Actions](https://github.com/4dwaffle/azure-devops-review/actions).
+
+<details>
+<summary>Earlier Marketplace releases, deployment checks and PR 2620 measurements</summary>
+
 ## Published update: 0.1.13
 
 Folder Reviewed checkboxes recursively update every non-ignored descendant, including collapsed and search-hidden files. Mixed states, atomic persistence and failed-save rollback are covered by real Edge regressions. Select contiguous code lines in either Monaco pane and use Add comment, Ctrl/Cmd+M or the editor context menu; drafts retain the exact side and range. Normal interactions remain inference-free.
@@ -21,9 +140,6 @@ Marketplace validation completed with availability still **Private (shared with 
 - Size: **15,713,649 bytes**
 - SHA-256: `123A840C43C20F79EBCFA8B046E112AD5CAD52E6A8A33F5D3A65A19E7E3381DD`
 - CDN: `https://vaclavberny.gallerycdn.vsassets.io/extensions/vaclavberny/azure-filtered-review/0.1.12/1791891890319`
-
-
-Private Azure DevOps extension adding a **Filtered Review** pull-request tab beside the native **Files** tab. This does not replace or modify Azure's built-in Files component.
 
 ## Published update: 0.1.11
 
@@ -47,43 +163,11 @@ The deployed Edge CDN test passed: the UI matches the packaged production bytes,
 - SHA-256: `D8636193B9F1907EA5CB33D2D245CA88834E522A09E4A77582F5B60687868AE5`
 - Package identity: **0.1.10**; all **212 addressable files** and **213 VSIX asset declarations** are present.
 
-## Build and install
-
-Requires Node.js 22+. From the repository root, install the shared analysis dependencies as well as the tab's dependencies:
-
-```powershell
-npm ci
-npm ci --prefix azure-tab
-npm test
-npm run package
-```
-
-The package appears under `azure-tab/artifacts`. `build.mjs` generates `vss-extension.package.json` from the source manifest, enumerating JavaScript (including transitive `.mjs`), WASM and binary assets with explicit MIME types; do not edit the generated manifest. License texts for bundled npm packages and shipped .NET/Roslyn/Humanizer assemblies are retained under `dist/licenses`. The manifest uses the Marketplace publisher `VaclavBerny`. For another publisher, change the ID in `vss-extension.json`, then rebuild. Keep `public: false`; upload the VSIX privately to that publisher, share it with your organization, and install it through Organization settings → Extensions. No upload, sharing or organization installation is performed by these scripts. The requested Azure scope is `vso.code_write` for explicit comment publication. Upgrading an existing installation may require organization permission approval. PR browsing itself remains read-only.
+## Early installation report
 
 Current PR discovery first checks SDK configuration, then the documented host navigation route's `pullRequestId`. If that host does not expose the ID, an explicit PR-ID form is shown. The private extension is installed in `Copeland-MikAssembly`. Version 0.1.1 fixes commit descriptors that previously omitted source/target versions from the SDK's serialized diff request, producing an empty default-commit comparison. Live read-only API checks on PR 2619 confirm that explicit immutable commit versions return changes. Host PR-context shape and organization iframe/CSP behavior still require live UI verification. A successful mocked browser test or VSIX build is not proof of live Azure UI behavior.
 
-## Review
-
-- Immutable source and target commits from PR metadata; `diffCommonCommit: true`, paginated diff results and an explicit merge base. Files are loaded from the merge-base and source commits, never moving branch refs.
-- Monaco read-only diffs with a **View** selector for side-by-side or inline layout, remembered across files and reloads. Drag the file-tree divider to resize the sidebar, or focus it and use arrow keys (Shift for larger steps), Home/End; double-click resets. Width is remembered and clamped to the available viewport. Reviewed counts and the progress meter appear at the left of the toolbar. Original rename paths and Git blob identities/modes come from immutable metadata. Binary, symlink and non-regular Git objects direct you to native Files. Failed reads remain visible and cannot be silently marked viewed.
-- The compact toolbar avoids repeating Azure’s PR title. **Ignore filters** opens a popover. Resource files, formatting-only, using-directive-only, repeated rename references, generated code, designers, migrations and custom globs are configurable. **Show ignored** does not change progress totals.
-- The file tree uses nested indentation, collapsible directory icons and file-type icons. Search reveals collapsed matches.
-- Renames, directory moves and combined moves/renames are labeled separately, with the original → destination path shown above the diff and in row tooltips. Search matches either path. Azure's separate addition/deletion rows are paired only when exactly one of each has the same immutable regular-file blob ID and the old path actually disappears. Duplicate-content ambiguity, missing metadata, copies and changed-content addition/deletion pairs remain separate. Explicit Azure renames retain their content edits; mode changes stay visible. Original and destination EditorConfig ancestors are both loaded. This is exact path-change detection, not proof that relocation preserves runtime or build behavior.
-- Files and folders have left-side **Reviewed** checkboxes for immediate durable progress. A folder checkbox applies atomically to every non-ignored descendant, including collapsed and search-hidden files; mixed state means some descendants are reviewed. Ignored files remain untouched even when shown, and folders with missing file fingerprints cannot be marked. Failed storage writes restore the persisted state without expanding the folder, and the toolbar stays synchronized. These are progress controls, not file multiselect; merely opening a file does not mark it reviewed.
-- Counts are `reviewed non-ignored / non-ignored · ignored`. Search also does not change these totals. Each left-side checkbox saves that file’s reviewed state immediately.
-- Browser-local progress is scoped to organization, user, repository and PR. Contents, rename paths and Git modes invalidate reviewed fingerprints; unrelated PR updates do not erase unchanged files. Clearing site storage removes progress. This is not synchronized with Azure's native viewed state.
-- **Dependencies** displays manifest declarations and explicit C# using directives independently of ignore filters, with owner-file navigation and an option to show unchanged connections. C# import edges are syntax-only, not resolved symbol dependencies. Unsupported source syntax is reported explicitly. Diagrams are bounded to 200 connections and 20 displayed warnings; complete immutable diffs remain available. This is not a full call graph or transitive dependency graph.
-- Existing file and general review comments are displayed as plain text. Azure system activity (such as branch updates) is hidden; human replies in mixed threads remain visible. Iteration context is available on hover rather than repeated headings. Current-iteration line links navigate the immutable diff; historical or out-of-range positions cannot navigate.
-- The embedded tab does not duplicate Azure’s PR title or state badges.
-- Shortcuts: `Ctrl+P` search, `J`/`K` next/previous file, `V` toggle viewed. In either editor pane, double-click a word and press `Ctrl+F` (`Cmd+F` on macOS) to search that string throughout the current file. `Enter`/`Shift+Enter` navigate matches; `Escape` closes Find. Find also works in inline layout and is bundled locally without inference. Editor input keeps Monaco's own key handling. Next/previous diff buttons navigate changed hunks.
-
-## Inline comments and recovery
-
-Select one or multiple contiguous code lines in either original/modified Monaco pane, then use **Add comment**, **Ctrl/Cmd+M**, or **Add review comment on selected lines** in its editor context menu. The composer retains the selected side and exact range; a selection ending at the beginning of the following line excludes that trailing line. Coordinates, immutable commits, merge base, fingerprint and iteration are saved with the browser-local draft; drafts survive navigation and reloads. Before publishing, the adapter rechecks active PR commits and the latest iteration, pages that iteration's common-base changes, validates the canonical path/rename and unique change-tracking ID, and rechecks the PR immediately before one SDK POST. A server-side update can still race this final guard; Azure exposes no conditional thread-write API here.
-
-For inferred addition/deletion moves, preflight verifies both real iteration entries: original-side comments target the deleted path and its tracking ID, modified-side comments target the added path and its tracking ID. If iteration metadata instead confirms an explicit rename, Azure's rename tracking is used. Missing, ambiguous or changed mappings block publication; tracking IDs are never fabricated. Threads on either path remain visible.
-
-Draft edits, publication and discard use browser Web Locks to serialize tabs. Draft persistence must succeed before any POST. Known validation/permission refusals remain editable. Network errors, response timeouts, unexpected responses or interrupted submissions become **uncertain**, never automatically retried. **Check publication** performs a read-only exact match against the saved payload and the signed-in author's root comment, then marks one unique matching thread published. Replies, missing author identities, another reviewer's identical comment, and zero or multiple matches remain uncertain. After checking native Files, the explicit archive action retains the uncertain draft in local browser storage before clearing the composer. It does not cancel an in-flight write or establish that posting failed. Corrupt drafts are preserved and block commenting without blocking review. Clearing site storage loses drafts/history.
+## Comment preflight report
 
 Live read-only preflight on PR 2620 verified the immutable common base, current iteration 1, canonical path and change-tracking ID 27. Live comment writes have not been smoke-tested against a real PR: automated tests use a local mock and actual SDK serialization, never unsolicited Azure comments.
 
@@ -95,39 +179,15 @@ Azure's diff listed 247 original-path deletions alongside their rename destinati
 
 The normalized PR has **80 ignored files / 1,260 visible files**; previously 51 of those redundant deletion rows contributed to the ignored count. Its 1,273 C# files / 21.6 million source characters exceed complete browser rename-binding limits, and project-specific dependencies are unavailable. Consequently unresolved namespace/project rename references remain visible. Hiding the entire PR safely requires complete project/solution compiler context; the PR title or token substitutions are not sufficient proof. The under-minute result applies to interactive loading, not completed semantic filtering.
 
-## Project-reference rename propagation
-
-The existing rename filter hides pure `ProjectReference Include` path propagation when an unambiguous project move/rename in the PR maps the resolved old/new targets. Valid XML and byte-identical text outside those paths are required. Conditions, metadata, packages, comments, unknown targets and mixed edits stay visible. This covers the actual `Mace.Boards.TruckOrganization.csproj` change in PR 2620 without disabling dependency analysis.
-
-## Optional namespace propagation filter
+## Namespace-filter benchmark
 
 The 0.1.10 local Edge run against PR 2620's **cached immutable snapshot** measured **1,281 ignored / 59 visible** with namespace text filtering enabled (0.1.9: 1,243 / 97). Analysis found 25 project-reference propagation files and 1,176 namespace-only candidates. Interactive rendering took 0.58 seconds, completed analysis 18.70 seconds, and navigation 66 ms, with 44 diagrams and no browser errors. These cached timings exclude Azure loading and are not deployed-CDN performance. Both reported example files are now classified appropriately; the moved entity still requires the explicit text-only namespace preference.
 
-Enable **Ignore filters → Namespace rename propagation (text-only)** to hide exact namespace substitutions, including namespace-only edits in moved/renamed declaration files. This independent preference is **off by default**, including for existing users. The popover shows the inferred old → new namespace mapping and candidate count. When disabled, a visible notice links to this setting without silently changing preferences. Identical warning pragmas can be excluded from tokenization only while retaining exact raw-source replacement checks, covering the moved `SchedulePartEntity.cs`. Changed pragmas and conditional directives remain unsupported. Show ignored reveals suppressed files without marking them reviewed or affecting comments, drafts or progress.
-
-Mappings require matching namespace/type declarations and reject conflicts. Candidates must pass both token comparison and exact source-text replacement. If the complete body cannot be tokenized, a validated leading using-directive header can instead be compared while requiring the entire remaining body to be byte-identical. This covers import-only changes in files such as `UpdateMachineUseCase.cs` containing unchanged interpolated strings, directives or large bodies. Mixed edits, changed literals/comments, mode changes, read errors, ambiguous mappings and unsupported changes outside that header remain visible. Analysis and diagrams run in the worker; toggling the filter is local and inference-free, requires no new API reads, and works even if Roslyn is unavailable. It is a text-only policy, **not compiler equivalence**: runtime binding, reflection, `nameof` and caller-information effects are not verified. Review namespace origins and dependency diagrams before enabling it. Existing compiler-verified rename filtering is unchanged.
+## Namespace-filter benchmark
 
 With the 0.1.9 header-aware classifier, PR 2620's saved immutable snapshot has **1,163 namespace-only candidates**, including the actual `UpdateMachineUseCase.cs`. A fresh live read-only API benchmark confirmed **1,243 ignored / 97 visible**, **18.92 seconds to interactive** (previously 41.36), **38.13 seconds total background analysis**, 57 ms navigation, 44 diagrams, and zero file/browser errors. Immutable blob contents are reused within each load, configuration discovery checks both snapshots' recursive trees before requesting existing ancestors (truncated trees retain conservative discovery), and eight file readers keep at most sixteen content requests in flight. The live run made **2,644 API calls** instead of 3,719. This measures the local production/test build with live Azure reads, not deployed-CDN performance. Existing ignore settings may overlap with text-only candidates; the actual rendered count is authoritative. Unsupported changes remain visible. The experimental compiler companion described below was implemented later; this benchmark did not use it.
 
-## Optional local compiler companion
-
-**Ignore filters → Local compiler companion** accepts a private loopback capability URL, or an empty value to disable it. The companion is experimental and off by default. See the [setup and complete trusted profile contract](../companion/README.md). It compiles immutable sources and pinned references using SDK Roslyn without executing PR project files, MSBuild or source generators. Browser/native verification runs concurrently; inaccessible endpoints, stale snapshots, unsupported options and unresolved contexts never hide additional files.
-
-A real Edge test verifies a synthetic 256-file PR beyond browser binding limits: **252 safe reference renames ignored / 4 origin, caller-info and mixed-edit files visible**. HTTPS-to-loopback access also works inside a tested cross-origin iframe after browser local-network permission; permission denial preserves visibility. This is not live Azure-host CSP/Permissions Policy verification. **PR 2620 has no trusted complete compiler profile yet and has not been verified with this companion.** The browser sends identities and content hashes only, not code or local paths. Normal review interactions remain inference-free.
-
-## Automatic browser Roslyn verification
-
-There is no diagnostics button. Lexical analysis proposes C# formatting, using-directive and repeated-rename candidates; a dedicated worker automatically initializes pinned WasmSharp 0.10.2 and the packaged .NET/Roslyn runtime only when candidates exist. While verification is pending, files remain visible and navigation stays responsive. There is no inference or external code transport.
-
-The trusted shipped C# analyzer receives all PR text as base64-encoded data. Only that analyzer is executed; PR code is parsed, bound and emitted in memory, never loaded or invoked.
-
-- Formatting/using-only candidates are compiled as libraries with packaged references. All emitted assembly bytes must match except the random module GUID and PE timestamp. IL, metadata, attributes and caller-info constants remain part of the comparison. Original snapshots use their original rename paths, so observable `CallerFilePath` changes cannot be hidden as formatting/using equivalence.
-- Repeated type- and namespace-rename candidates require both changed-file snapshots to compile and each changed identifier to bind to the mapped old/new type. Unchanged name/type bindings and compiler-supplied optional arguments must also agree under that mapping. Changed caller file paths, line numbers and caller argument expressions stay visible, including constructor and attribute calls; unsupported implicit defaults remain unverified. Declaration origins remain visible. This is reference-binding verification, not a claim that the renamed type itself preserves behavior.
-- Syntax errors, preprocessor directives, missing references, ambiguous/shadowed renames and observable nameof rename changes are not verified. Unknown files stay visible. Worker/runtime failures and a 60-second analysis timeout keep unverified candidates visible. Complete rename-binding contexts are limited to 250 C# files / 4 million source characters; larger PRs use bounded 50-file / 4-million-character formatting/using batches. Unverified large-context renames stay visible rather than hiding files based on names alone.
-
-**Scope limitation:** this is a changed-file snapshot with packaged framework references, not the repository’s complete project compilation. Unchanged source files, project-specific references, build options, source generators and IDE analyzers are not loaded. Successful verification describes this browser compilation context, not a proof of whole-solution behavior or unused/dead-code detection. Explicit resource/generated/designer/migration/custom-glob ignores remain user policy, not semantic proof. Mode changes always remain visible.
-
-Assemblies, runtime, Comlink and Monaco workers are packaged locally. The organization's iframe/CSP must allow same-origin module workers and WASM. No SharedArrayBuffer or cross-origin isolation is required by the tested runtime. The desktop language-server executable is not used in the iframe.
+## Browser runtime deployment reports
 
 Marketplace version **0.1.8** is validated with all 215 declared assets. An actual Edge test against its CDN confirmed that the deployed UI is byte-for-byte identical to the packaged production UI, includes the move/rename presentation and separate opt-in namespace filter, initialized the module worker and WASM, and executed the shipped trusted analyzer on twelve fixtures. The deployed analysis worker additionally returned two text-only namespace candidates (including a moved declaration), retained mixed edits, and did not mark these initial candidates compiler-verified. PR 2620's existing signed-in installed tab was reloaded and confirmed to use the 0.1.8 CDN iframe, without a reinstall. It verified formatting/using/reference-rename candidates, kept the rename declaration visible, and rejected a deliberately mislabeled behavior change and observable caller-information changes. Regression cases cover renamed-file `CallerFilePath`, `CallerLineNumber`, `CallerArgumentExpression`, constructor and attribute calls; unchanged caller information still permits a verified reference rename. This verifies deployed compiler execution, not complete project context or the Azure-hosted iframe's policies.
 
@@ -135,16 +195,4 @@ The 0.1.8 VSIX contains 15,692,198 bytes; its SHA-256 is `9cd76b0988c9ee4a536c36
 
 Marketplace version **0.1.9** is validated with all 215 declared assets. Its deployed Edge regression verified the exact packaged UI hash, the analysis worker's import-only namespace match with an unchanged interpolated body, mixed-edit preservation, module/WASM initialization, and all twelve trusted compiler fixtures above. PR 2620's existing signed-in tab was reloaded and confirmed to use the 0.1.9 CDN iframe without reinstalling. The native provider was reloaded successfully; native/shared tests passed 54 cases and tab tests passed 26 cases, with the separate deployed-CDN test passing as well. The 0.1.9 VSIX contains 15,692,477 bytes; its SHA-256 is `0152c040c2edfc4e581ee30061bd006fe21a5a88bd0a0569649a0a2ecd62c7ab`.
 
-## Conservative classification
-
-Generated filename/header conventions are recognized. Relevant ancestor `.editorconfig` and root `.globalconfig` files are fetched from both immutable commits. If any explicit `generated_code` setting or uncertain configuration read is encountered, generated candidates stay visible with a warning rather than attempting incomplete EditorConfig semantics. Designer/migration filters remain separately user-controlled.
-
-This browser-only extension has no local Git/worktree access, Copilot CLI bridge, automatic inference or remote progress synchronization. Ordinary file navigation, filtering, progress and dependency diagrams require no agent inference.
-
-## Validation and third-party components
-
-`npm test` exercises pure pagination/progress logic and a real headless Microsoft Edge browser (`C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe`). Browser tests use a mocked Azure client and real Monaco, analysis workers and packaged Roslyn assets. Diff requests additionally pass through the installed `GitRestClient` serializer, asserting actual version query parameters rather than only mock argument shapes. Regression tests cover Azure’s string-valued change enums, nested tree navigation, header-free layout, automatic Roslyn filtering, missing references, changed bindings, caller line numbers, directives, shadowed renames, safe PR-data encoding and bounded large-context batches, namespace bindings, comment composition, reload persistence, uncertain-write reconciliation and archival. Both diff and comment requests are checked through the installed SDK serializer. Packaging tests verify Marketplace MIME metadata for every transitive JS/MJS module and WASM asset. No tests post live Azure comments or publish/install the extension.
-
-To additionally verify a published build, set `FILTERED_REVIEW_CDN_URL` to its exact publisher asset URI and run `node --test tests\cdn.test.mjs`. This opt-in test reads only the extension's public CDN assets and compiles canned fixtures; it never reads PR code, posts comments, or changes the installation. Normal test runs skip it.
-
-Uses Microsoft's MIT-licensed Azure DevOps extension SDK/API and Monaco, and Apache-2.0-licensed WasmSharp with .NET/Roslyn components. Bundled legal comments are retained; shipped vendor runtime files retain their original headers. See `dist/licenses` for included license notices.
+</details>

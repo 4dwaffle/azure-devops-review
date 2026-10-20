@@ -1,4 +1,4 @@
-export function buildFileTree(files) {
+export function buildFileTree(files,ranks) {
  const root={children:[],folders:new Map(),files:[]};
  for(const file of files){
   const parts=file.path.split('/');let parent=root,prefix='';
@@ -10,9 +10,19 @@ export function buildFileTree(files) {
   }
   parent.children.push({kind:'file',name:parts.at(-1),path:file.path,file});
  }
- function sorted(node,depth){return node.children.sort((a,b)=>(a.kind===b.kind?0:a.kind==='folder'?-1:1)||a.name.localeCompare(b.name)).map(child=>({...child,depth,...(child.kind==='folder'?{children:sorted(child,depth+1)}:{})}));}
+ const rank=node=>node.kind==='folder'?node.rank:ranks?.get(node.path)??Infinity;
+ function sorted(node,depth){
+  for(const child of node.children)if(child.kind==='folder'){
+   child.children=sorted(child,depth+1);child.rank=child.children.reduce((value,item)=>Math.min(value,rank(item)),Infinity);
+  }
+  return node.children.sort((a,b)=>{
+   const left=rank(a),right=rank(b);
+   return (left===right?0:left<right?-1:1)||(a.kind===b.kind?0:a.kind==='folder'?-1:1)||a.name.localeCompare(b.name);
+  }).map(child=>({...child,depth}));
+ }
  return sorted(root,0);
 }
+export function flattenFileTree(nodes){return nodes.flatMap(node=>node.kind==='folder'?flattenFileTree(node.children):[node.file]);}
 export function fileType(path){
  const name=path.split('/').at(-1).toLowerCase();
  if(name.endsWith('.cs'))return {type:'csharp',label:'C#',glyph:'C#'};
