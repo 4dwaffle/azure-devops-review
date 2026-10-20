@@ -38,34 +38,22 @@ jobs:
           cache-dependency-path: |
             package-lock.json
             azure-tab/package-lock.json
-            browser-roslyn/package-lock.json
-      - uses: actions/setup-dotnet@v4
-        with:
-          global-json-file: companion/global.json
       - name: Configure test environment and check prerequisites
         run: |
           # Avoid runner profile 8.3 aliases: Git reports long paths for temporary worktrees.
           "TEMP=$env:RUNNER_TEMP" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
           "TMP=$env:RUNNER_TEMP" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
           if (!(Test-Path $env:REVIEW_BROWSER)) { throw 'Microsoft Edge is required for browser validation.' }
-          $sdks = dotnet --list-sdks
-          if ($LASTEXITCODE -ne 0 -or !($sdks -match '^10\.')) { throw '.NET 10 SDK is required for native compiler tests.' }
       - name: Install locked dependencies
         run: |
           npm ci --no-audit --no-fund
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           npm ci --prefix azure-tab --no-audit --no-fund
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          npm ci --prefix browser-roslyn --no-audit --no-fund
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Build native compiler companion
-        run: dotnet build companion\ReviewCompiler.csproj --configuration Release --nologo
-      - name: Test shared analysis and compiler companion
+      - name: Test shared analysis
         run: npm run test:core
       - name: Test Azure DevOps extension
         run: npm test --prefix azure-tab
-      - name: Test browser Roslyn probe
-        run: npm test --prefix browser-roslyn
       - name: Build Azure DevOps extension
         run: npm run build --prefix azure-tab
       - name: Prepare versioned VSIX manifest
