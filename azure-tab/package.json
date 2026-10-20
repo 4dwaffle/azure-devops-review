@@ -1,6 +1,6 @@
 {
  "name": "azure-filtered-review",
- "description": "Azure DevOps PR review tab with Monaco diffs, local ignore filters, browser Roslyn verification, and explicit inline comments.",
+ "description": "Azure DevOps PR review tab with Monaco diffs, explicit local ignore filters, browser-local progress, and inline comments.",
  "private": true,
  "type": "module",
  "version": "0.1.13",
@@ -12,10 +12,10 @@
  "dependencies": {
   "azure-devops-extension-sdk": "4.2.0",
   "azure-devops-extension-api": "5.279.1",
+  "fflate": "0.8.3",
   "monaco-editor": "0.52.2",
   "path-browserify": "1.0.1",
-  "picomatch": "4.0.7",
-  "@wasmsharp/core": "0.10.2"
+  "picomatch": "4.0.7"
  },
  "devDependencies": {
   "esbuild": "0.28.2",

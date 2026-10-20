@@ -1,9 +1,0 @@
-{
-  "name": "review-browser-roslyn-probe",
-  "description": "Standalone Windows Edge probe for browser-local WasmSharp/Roslyn compiler diagnostics.",
-  "private": true,
-  "type": "module",
-  "scripts": {"test": "node test.mjs"},
-  "dependencies": {"@wasmsharp/core": "0.10.2"},
-  "devDependencies": {"vite": "6.4.1", "playwright-core": "1.58.2"}
-}

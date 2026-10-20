@@ -3,6 +3,7 @@ import {getClient,CommonServiceIds} from 'azure-devops-extension-api';
 import {GitRestClient} from 'azure-devops-extension-api/Git';
 import {pagedDiff,changedFiles,inferExactRenames,mapBounded,fingerprint} from './review.mjs';
 import {testProjectClassifier} from '../../test-projects.mjs';
+import {preloadContents} from './blob-content.mjs';
 export function contextId(configuration={}) {
  const id=configuration.pullRequestId??configuration.pullRequest?.pullRequestId;
  return Number.isSafeInteger(Number(id))&&Number(id)>0?Number(id):null;
@@ -21,12 +22,16 @@ export async function loadPullRequest(connection,id) {
  const repository=pr.repository?.id;
  const source=pr.lastMergeSourceCommit?.commitId,target=pr.lastMergeTargetCommit?.commitId;
  if(!repository||!source||!target)throw new Error('PR snapshot commits are not available yet. Retry after Azure has calculated the merge.');
- const {base,changes}=await pagedDiff((skip,top)=>client.getCommitDiffs(repository,project,true,top,skip,{version:target,versionType:2},{version:source,versionType:2}));
+ const modes={},completeTrees={};
+ const trees=new Map();
+ const loadTree=version=>{if(!trees.has(version))trees.set(version,(async()=>{const commit=await client.getCommit(version,repository,project,0);const tree=await client.getTree(repository,commit.treeId,project,undefined,true);modes[version]=new Map(tree.treeEntries.map(entry=>[entry.relativePath.replace(/^\//,''),entry]));completeTrees[version]=tree.truncated!==true;})());return trees.get(version);};
+ const diff=pagedDiff((skip,top)=>client.getCommitDiffs(repository,project,true,top,skip,{version:target,versionType:2},{version:source,versionType:2}));
+ let latestIteration=null,threads=[],threadError;
+ const comments=(async()=>{try {const iterations=await client.getPullRequestIterations(repository,id,project);const latest=[...iterations].sort((a,b)=>b.id-a.id)[0];latestIteration=latest?.sourceRefCommit?.commitId===source&&latest?.targetRefCommit?.commitId===target?latest.id:null;threads=await client.getThreads(repository,id,project,latestIteration??undefined,latestIteration??undefined);}catch(error){threadError=`Comment threads unavailable: ${error.message||error}`;}})();
+ const [{base,changes}]=await Promise.all([diff,loadTree(source),diff.then(({base})=>loadTree(base))]);
  let files=changedFiles(changes);
  const descriptor=version=>({version,versionType:2});
  const item=(path,version,content=true)=>client.getItem(repository,'/'+path,project,undefined,0,true,false,false,descriptor(version),content,false);
- const modes={},completeTrees={};
- await Promise.all([base,source].map(async version=>{const commit=await client.getCommit(version,repository,project,0);const tree=await client.getTree(repository,commit.treeId,project,undefined,true);modes[version]=new Map(tree.treeEntries.map(entry=>[entry.relativePath.replace(/^\//,''),entry]));completeTrees[version]=tree.truncated!==true;}));
  const contents=new Map();
  const readItem=(path,version)=>{
   const blob=modes[version].get(path)?.objectId;
@@ -35,8 +40,21 @@ export async function loadPullRequest(connection,id) {
   return contents.get(key);
  };
  files=inferExactRenames(files,modes[base],modes[source]);
- let latestIteration=null,threads=[],threadError;
- try {const iterations=await client.getPullRequestIterations(repository,id,project);const latest=[...iterations].sort((a,b)=>b.id-a.id)[0];latestIteration=latest?.sourceRefCommit?.commitId===source&&latest?.targetRefCommit?.commitId===target?latest.id:null;threads=await client.getThreads(repository,id,project,latestIteration??undefined,latestIteration??undefined);}catch(error){threadError=`Comment threads unavailable: ${error.message||error}`;}
+ const configs=new Set(['.editorconfig','.globalconfig']);for(const file of files)for(const path of new Set([file.path,file.oldPath].filter(Boolean))){const parts=path.split('/');parts.pop();while(parts.length){configs.add(parts.join('/')+'/.editorconfig');parts.pop();}}
+ const projects={base:[],source:[],complete:completeTrees[base]&&completeTrees[source]};
+ const projectDirectories=new Set(['']);
+ for(const file of files)for(const path of [file.path,file.oldPath].filter(Boolean)){
+  let directory=path.slice(0,path.lastIndexOf('/')+1);
+  while(directory){projectDirectories.add(directory);directory=directory.slice(0,-1);directory=directory.slice(0,directory.lastIndexOf('/')+1);}
+ }
+ const projectPaths=version=>projects.complete?[...modes[version].keys()].filter(path=>/\.csproj$/i.test(path)&&projectDirectories.has(path.slice(0,path.lastIndexOf('/')+1))):[];
+ const requests=[];
+ for(const version of new Set([base,source])){
+  const paths=new Set([...configs,...projectPaths(version)]);
+  for(const file of files)if(version===base?file.status!=='A':file.status!=='D')paths.add(version===base?file.oldPath||file.path:file.path);
+  for(const path of paths)requests.push({path,version,entry:modes[version].get(path)});
+ }
+ await preloadContents(client,repository,project,requests,contents);
  await mapBounded(files,async file=>{
   const left=modes[base].get(file.oldPath||file.path),right=modes[source].get(file.path);
   file.beforeMode=left?.mode;file.afterMode=right?.mode;file.modeChanged=!!left&&!!right&&left.mode!==right.mode;
@@ -52,20 +70,13 @@ export async function loadPullRequest(connection,id) {
    file.fingerprint=await fingerprint(file);
   }catch(error){file.error=String(error.message||error);file.original='';file.modified='';}
  },8);
- const configs=new Set(['.editorconfig','.globalconfig']);for(const file of files)for(const path of new Set([file.path,file.oldPath].filter(Boolean))){const parts=path.split('/');parts.pop();while(parts.length){configs.add(parts.join('/')+'/.editorconfig');parts.pop();}}
  const configurations=[];
  await mapBounded([...configs],async path=>{await Promise.all([base,source].map(async version=>{
   if(completeTrees[version]&&!modes[version].has(path))return;
   try {const config=await readItem(path,version);configurations.push({path,side:version===base?'base':'source',contents:config.content||''});}catch(error){if(error.status!==404&&error.statusCode!==404)configurations.push({path,error:String(error.message||error)});}
  }));});
- const projects={base:[],source:[],complete:completeTrees[base]&&completeTrees[source]};
- const projectDirectories=new Set(['']);
- for(const file of files)for(const path of [file.path,file.oldPath].filter(Boolean)){
-  let directory=path.slice(0,path.lastIndexOf('/')+1);
-  while(directory){projectDirectories.add(directory);directory=directory.slice(0,-1);directory=directory.slice(0,directory.lastIndexOf('/')+1);}
- }
  if(projects.complete)await mapBounded([base,source],async version=>{
-  const paths=[...modes[version].keys()].filter(path=>/\.csproj$/i.test(path)&&projectDirectories.has(path.slice(0,path.lastIndexOf('/')+1)));
+  const paths=projectPaths(version);
   await mapBounded(paths,async path=>{
    const side=version===base?'base':'source',entry=modes[version].get(path);
    try {
@@ -77,5 +88,6 @@ export async function loadPullRequest(connection,id) {
  },2);
  const testProject=testProjectClassifier(projects);
  for(const file of files)file.testProject=testProject(file);
+ await comments;
  return {pr,repository,source,target,base,files,threads,latestIteration,threadError,configurations};
 }

@@ -6,7 +6,7 @@ A privately distributed Azure DevOps extension that adds a **Filtered Review** p
 
 - Read-only Monaco diffs of immutable merge-base and source commits, with side-by-side and inline layouts.
 - Configurable ignores for generated code, designers, migrations, resources, custom path globs, file moves, and project-reference path renames.
-- Browser Roslyn verification for C# formatting, using directives, and rename references. Unresolved changes remain visible; namespace text matching is a separate opt-in policy.
+- Optional JSON formatting-only and namespace-propagation text filters. C# formatting, using-directive, and reference edits stay visible unless an explicit ignore policy matches the file.
 - Dependency diagrams for changed manifests and explicit C# imports.
 - Durable browser-local file and folder review progress.
 - Inline comment drafts with explicit publication, snapshot validation, cross-tab locking, and uncertain-write recovery.
@@ -27,9 +27,9 @@ npm run build
 npm run package
 ```
 
-`npm test` runs the shared analysis/companion tests and the extension suite. The full suite requires Windows with Microsoft Edge at `C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe`, Git, and a stable .NET 10 SDK with its reference pack. Browser launch paths are hard-coded in the tests; `REVIEW_BROWSER` does not override them. .NET-dependent tests skip when no .NET 10 SDK is detected. Tests use local fixtures and mocked comment writes.
+`npm test` runs the shared analysis tests and the extension suite. Browser tests require Windows with Microsoft Edge at `C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe`. Browser launch paths are hard-coded in the tests; `REVIEW_BROWSER` does not override them. Tests use local fixtures and mocked comment writes. No .NET SDK is required.
 
-`npm run build` bundles the tab and browser workers; `npm run package` rebuilds them and creates a self-contained VSIX under `azure-tab\artifacts`. Packaging needs Node.js and the root/extension dependencies, without Edge or .NET. The source manifest is `azure-tab\vss-extension.json`; `vss-extension.package.json` is generated and must not be edited. Bundled assets include their license notices. Uploading, organization sharing, and installation are separate manual operations described in the extension documentation.
+`npm run build` bundles the tab and browser workers; `npm run package` rebuilds them and creates a self-contained VSIX under `azure-tab\artifacts`. Packaging needs Node.js and the root/extension dependencies, without Edge. The source manifest is `azure-tab\vss-extension.json`; `vss-extension.package.json` is generated and must not be edited. Bundled assets include their license notices. Uploading, organization sharing, and installation are separate manual operations described in the extension documentation.
 
 ## Repository layout
 
@@ -38,22 +38,11 @@ npm run package
 | `azure-tab/` | Azure DevOps SDK integration, review UI, browser workers, manifest, build, and extension tests |
 | `analysis.mjs`, `generated-code.mjs` | Shared conservative change classification and generated-code helpers |
 | `ui/` | Dependency-diagram and path-change helpers used by the extension |
-| `tests/` | Shared analysis tests, optional compiler tests, and browser-test fixtures |
-| `companion/` | Optional trusted local compiler verification for the Azure tab |
-| `browser-roslyn/` | Standalone browser Roslyn feasibility probe |
-
-The [optional compiler companion](companion/README.md) supplements browser verification using explicitly trusted complete compiler profiles. It never executes PR build logic and is not required to use or package the extension.
-
-The standalone [browser Roslyn probe](browser-roslyn/README.md) has its own dependencies:
-
-```powershell
-npm ci --prefix browser-roslyn
-npm run test:browser-roslyn
-```
+| `tests/` | Shared analysis tests and browser-test fixtures |
 
 ## CI and releases
 
-[CI](.github/workflows/ci.yml) runs for pull requests to `main`, merge groups, and manual dispatch. It tests shared logic, the native companion, the extension, and the browser Roslyn probe, then uploads one VSIX and `SHA256SUMS.txt` as the `release-packages` workflow artifact.
+[CI](.github/workflows/ci.yml) runs for pull requests to `main`, merge groups, and manual dispatch. It tests shared logic and the extension, then uploads one VSIX and `SHA256SUMS.txt` as the `release-packages` workflow artifact.
 
 [CD](.github/workflows/cd.yml) runs on pushes to `main`, reuses CI with an allocated `0.2.${GITHUB_RUN_NUMBER}` release version, and publishes the validated VSIX and `SHA256SUMS.txt` to a versioned GitHub Release. Local packaging uses the source manifest's version; CD overrides the generated package manifest's version.
 
