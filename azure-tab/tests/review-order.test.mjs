@@ -55,3 +55,11 @@ test('Notes belong to each preceding path and remain plain text; dashes inside c
  const result=resolveReviewOrder([{path:'new/B.cs',oldPath:'old/B.cs'}],'## Review order\n1. `old/B.cs` — first note\n2. `new/B.cs` — second note\n3. `Missing.cs` — unavailable');
  assert.deepEqual([...result.notes],[['new/B.cs','first note']]);assert.deepEqual([...result.ranks],[['new/B.cs',0]]);
 });
+
+test('Copilot regressions: explicit extensionless files and spaced dashes resolve without truncation',()=>{
+ const input=['LICENSE','Dockerfile','src/Feature','src/Feature - Legacy.cs','src/Other - Legacy.cs'].map(path=>({path}));
+ const result=resolveReviewOrder(input,'## Review order\n1. `Dockerfile` — container\n2. [LICENSE](LICENSE) — licensing\n3. `src/Feature - Legacy.cs` — implementation\n4. [src/Other - Legacy.cs](src/Other%20-%20Legacy.cs) — companion');
+ assert.deepEqual(result.files.map(file=>file.path),['Dockerfile','LICENSE','src/Feature - Legacy.cs','src/Other - Legacy.cs','src/Feature']);
+ assert.equal(result.matched,4);assert.deepEqual(result.unmatched,[]);
+ assert.equal(result.notes.get('src/Feature - Legacy.cs'),'implementation');
+});
