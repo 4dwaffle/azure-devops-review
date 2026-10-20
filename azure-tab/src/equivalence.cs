@@ -77,8 +77,9 @@ public class ReviewEquivalence
     static bool SameEmission(SyntaxTree before, SyntaxTree after)
     {
         var left = Emit(Compile(new[] { before }));
+        if (left == null) return false;
         var right = Emit(Compile(new[] { after }));
-        return left != null && right != null && left.SequenceEqual(right);
+        return right != null && left.SequenceEqual(right);
     }
 #endif
     static string Identity(ISymbol symbol, Dictionary<INamedTypeSymbol, INamedTypeSymbol> renames, bool normalize)

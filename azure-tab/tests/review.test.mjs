@@ -1,7 +1,17 @@
 import {test} from 'node:test';import assert from 'node:assert/strict';
 import {pagedDiff,changedFiles,inferExactRenames,fingerprint,Progress,totals,mapBounded} from '../src/review.mjs';
 const storage=()=>{const entries=new Map();return {getItem:key=>entries.get(key),setItem:(key,value)=>entries.set(key,value)};};
-test('Pages all changed files using stable merge base',async()=>{const calls=[];const result=await pagedDiff(async(skip,top)=>{calls.push([skip,top]);return {commonCommit:'base',changes:Array.from({length:skip===0?100:35},(_,i)=>({id:skip+i})),allChangesIncluded:skip>0};});assert.equal(result.changes.length,135);assert.deepEqual(calls,[[0,100],[100,100]]);});
+test('Loads a large immutable diff in 2000-change pages using a stable merge base',async()=>{
+ const calls=[];const result=await pagedDiff(async(skip,top)=>{calls.push([skip,top]);return {commonCommit:'base',changes:Array.from({length:Math.min(top,2135-skip)},(_,i)=>({id:skip+i})),allChangesIncluded:skip+top>=2135};});
+ assert.equal(result.changes.length,2135);assert.deepEqual(calls,[[0,2000],[2000,2000]]);assert.deepEqual(result.changes.map(value=>value.id),Array.from({length:2135},(_,i)=>i));
+});
+test('Advances by actual returned changes when Azure caps a requested page',async()=>{
+ const calls=[];const result=await pagedDiff(async(skip,top)=>{calls.push([skip,top]);return {commonCommit:'base',changes:Array.from({length:skip===0?100:35},(_,i)=>({id:skip+i})),allChangesIncluded:skip>0};});
+ assert.equal(result.changes.length,135);assert.deepEqual(calls,[[0,2000],[100,2000]]);
+});
+test('Larger pages preserve the 100000-change limit without displaying a partial review',async()=>{
+ let calls=0;await assert.rejects(pagedDiff(async(_skip,top)=>{calls++;return {commonCommit:'base',changes:Array(top).fill({}),allChangesIncluded:false};}),/100,000-change limit/);assert.equal(calls,51);
+});
 test('Refuses missing, changing and incomplete merge bases',async()=>{await assert.rejects(pagedDiff(async()=>({})),/merge base/);await assert.rejects(pagedDiff(async skip=>({commonCommit:skip?'b':'a',changes:[{}],allChangesIncluded:!!skip})),/changed/);await assert.rejects(pagedDiff(async()=>({commonCommit:'a',changes:[]})),/incomplete/);});
 test('Handles additions, deletes and Azure originalPath renames',()=>{assert.deepEqual(changedFiles([{changeType:1,item:{path:'/A.cs'}},{changeType:16,item:{path:'/D.cs'}},{changeType:10,originalPath:'/Old.cs',item:{path:'/New.cs'}},{item:{path:'/folder',isFolder:true}}]).map(file=>[file.path,file.status,file.oldPath]),[['A.cs','A',undefined],['D.cs','D',undefined],['New.cs','R','Old.cs']]);assert.throws(()=>changedFiles([{changeType:8,item:{path:'/New.cs'}}]),/original/);});
 test('Handles live Azure string enums without treating adds and deletes as edits',()=>{assert.deepEqual(changedFiles([{changeType:'add',item:{path:'/A.cs'}},{changeType:'delete',item:{path:'/D.cs'}},{changeType:'edit, rename',originalPath:'/Old.cs',item:{path:'/New.cs'}},{changeType:'edit',item:{path:'/folder',gitObjectType:'tree'}}]).map(file=>[file.path,file.status,file.oldPath]),[['A.cs','A',undefined],['D.cs','D',undefined],['New.cs','R','Old.cs']]);assert.throws(()=>changedFiles([{changeType:'unknown',item:{path:'/x'}}]),/Unknown Azure/);});

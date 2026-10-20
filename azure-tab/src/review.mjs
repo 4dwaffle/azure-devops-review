@@ -1,11 +1,12 @@
 export async function pagedDiff(fetchPage) {
  const changes=[];let skip=0,common;
  for(let page=0;page<1000;page++) {
-  const result=await fetchPage(skip,100);
+  const result=await fetchPage(skip,2000);
   if(!result.commonCommit) throw new Error('Azure did not return a merge base; refusing a two-tip diff.');
   if(common && common!==result.commonCommit) throw new Error('Merge base changed while paging.');
   common=result.commonCommit;
   const batch=result.changes||[];changes.push(...batch);
+  if(changes.length>100000)throw new Error('Diff exceeds the supported 100,000-change limit; no partial review displayed.');
   if(result.allChangesIncluded===true) return {base:common,changes};
   if(!batch.length) throw new Error('Azure returned an incomplete diff page without changes.');
   skip+=batch.length;
