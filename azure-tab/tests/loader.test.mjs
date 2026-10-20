@@ -5,7 +5,7 @@ import {createHash} from 'node:crypto';
 import {zipSync} from 'fflate';
 const source=await readFile(new URL('../src/azure.mjs',import.meta.url),'utf8');
 const imports=source.slice(0,source.indexOf('export function contextId')).replace(/import .*?(?:SDK|CommonServiceIds|GitRestClient).*?;\r?\n/g,'').replace("'./review.mjs'",JSON.stringify(new URL('../src/review.mjs',import.meta.url).href)).replace("'../../test-projects.mjs'",JSON.stringify(new URL('../../test-projects.mjs',import.meta.url).href));
-const {loadPullRequest}=await import('data:text/javascript;base64,'+Buffer.from(imports.replace("'./blob-content.mjs'",JSON.stringify(new URL('../src/blob-content.mjs',import.meta.url).href))+source.slice(source.indexOf('export async function loadPullRequest'))).toString('base64'));
+const {loadPullRequest}=await import('data:text/javascript;base64,'+Buffer.from(imports.replace("'./blob-content.mjs'",JSON.stringify(new URL('../src/blob-content.mjs',import.meta.url).href)).replace("'./tree-context.mjs'",JSON.stringify(new URL('../src/tree-context.mjs',import.meta.url).href))+source.slice(source.indexOf('export async function loadPullRequest'))).toString('base64'));
 const entry=(relativePath,id,mode='100644')=>({relativePath,objectId:id.repeat(40),mode});
 function fixture(truncated=false) {
  const calls=[];
@@ -283,4 +283,71 @@ test('A client with only one bulk API falls back to immutable per-item reads wit
   assert.equal(fixture.zipCalls.length,0);assert.equal(fixture.metadataCalls.length,0);
   assert.equal(fixture.itemCalls.length,immutable.itemCalls.length);assertImmutableItemCalls(fixture.itemCalls);
  }
+});
+
+function smallRepositoryFixture({scoped=true,failure,truncated=false}={}){
+ const fixture=bulkLoaderFixture(),{client,records}=fixture,fullDiff=client.getCommitDiffs,fullTree=client.getTree,metadata=client.getItemsBatch;
+ // Eight changes, but 20,000 unrelated files: repository size must not dictate
+ // small-review acquisition. Include moves, old ancestors and an added file.
+ const selected=new Set(['src/Tests/Changed.cs','src/Tests/Added.cs','src/Tests/Deleted.cs','old/Inferred.cs','new/Inferred.cs','scripts/run.sh','src/Tests/Nested/Code.cs','src/Transition/Code.cs']);
+ client.getCommitDiffs=async(...args)=>{const diff=await fullDiff(...args);return {...diff,changes:diff.changes.filter(change=>selected.has(change.item.path.slice(1)))};};
+ const all=[...records.values()].map(record=>({...record,entry:{relativePath:record.path,objectId:record.id,mode:record.mode}}));
+ for(const version of [snapshotBase,snapshotSource])for(let i=0;i<20000;i++)all.push({version,path:`unrelated/Deep/File${i}.cs`,entry:entry(`unrelated/Deep/File${i}.cs`,'e')});
+ const directories=new Map(),trees=new Map(),treeCalls=[],directoryCalls=[];
+ for(const version of [snapshotBase,snapshotSource]){
+  const paths=new Set(['']);
+  for(const record of all.filter(record=>record.version===version)){let path=record.path;while(path.includes('/')){path=path.slice(0,path.lastIndexOf('/'));paths.add(path);}}
+  for(const path of paths){
+   const id=createHash('sha1').update(version+':'+path).digest('hex'),prefix=path?path+'/':'';
+   const entries=all.filter(record=>record.version===version&&record.path.startsWith(prefix)&&!record.path.slice(prefix.length).includes('/')).map(record=>({...record.entry,relativePath:record.path.slice(prefix.length)}));
+   for(const child of paths)if(child.startsWith(prefix)&&child!==path&&!child.slice(prefix.length).includes('/'))entries.push({relativePath:child.slice(prefix.length),mode:'040000',objectId:createHash('sha1').update(version+':'+child).digest('hex')});
+   directories.set(immutableKey('/'+path,version),{path:'/'+path,commitId:version,objectId:id,gitObjectType:2,isFolder:true});trees.set(id,{truncated,treeEntries:entries});
+  }
+ }
+ client.getTree=async(...args)=>{
+  treeCalls.push(args);
+  if(args[4]){const result=await fullTree(...args);return {...result,truncated,treeEntries:all.filter(record=>record.version===args[1]).map(record=>record.entry)};}
+  assert.ok(trees.has(args[1]));
+  if(failure==='tree-rejected')throw new Error('Scoped listing unavailable');
+  return trees.get(args[1]);
+ };
+ client.getItemsBatch=async(...args)=>{
+  if(args[0].includeContentMetadata)return metadata(...args);
+  directoryCalls.push(args);
+  if(!scoped||failure==='batch-rejected')throw new Error('Directory batches unavailable');
+  const items=args[0].itemDescriptors.map(descriptor=>{
+   assert.equal(descriptor.recursionLevel,0);assert.equal(descriptor.versionType,2);
+   assert.ok(!descriptor.path.includes('unrelated'),'Unchanged descendants must not be enumerated');
+   const item=directories.get(immutableKey(descriptor.path,descriptor.version));return item?[{...item}]:[];
+  });
+  if(failure==='wrong-version')items[0][0].commitId=snapshotTarget;
+  if(failure==='wrong-path')items[0][0].path='/elsewhere';
+  if(failure==='missing-root')items[0]=[];
+  if(failure==='partial-batch')items.pop();
+  return items;
+ };
+ return {...fixture,treeCalls,directoryCalls};
+}
+
+test('A small diff in a large repository loads only applicable directories with identical modes, configs, projects and fingerprints',async()=>{
+ const full=smallRepositoryFixture({scoped:false}),small=smallRepositoryFixture();
+ const expected=normalized(await loadFixture(full)),actual=normalized(await loadFixture(small));
+ assert.deepEqual(actual,expected);assert.equal(actual.files.length,7,'Exact delete/add rename inference is retained');
+ assert.equal(actual.files.find(file=>file.path==='src/Tests/Changed.cs').testProject,true);
+ assert.equal(actual.files.find(file=>file.path==='src/Tests/Nested/Code.cs').testProject,false);
+ assert.equal(actual.files.find(file=>file.path==='src/Transition/Code.cs').testProject,false);
+ assert.equal(actual.files.find(file=>file.path==='new/Inferred.cs').modeChanged,true);
+ assert.ok(small.treeCalls.length>0);assert.ok(small.treeCalls.every(args=>args[4]===false),'No repository-wide recursive reads for a small diff');
+ assert.ok(full.treeCalls.some(args=>args[4]===true),'The comparison exercises the original full-tree path');
+ assert.equal(small.directoryCalls.length,1);assert.equal(small.zipCalls.length,1);
+});
+
+test('Small-review directory snapshot, batch and tree failures fall back without losing any review context',async t=>{
+ const expected=normalized(await loadFixture(smallRepositoryFixture({scoped:false})));
+ for(const failure of ['batch-rejected','wrong-version','wrong-path','missing-root','partial-batch','tree-rejected'])await t.test(failure,async()=>{
+  const fixture=smallRepositoryFixture({failure});assert.deepEqual(normalized(await loadFixture(fixture)),expected);
+  assert.ok(fixture.treeCalls.some(args=>args[4]===true),'Fallback reads the full immutable trees');
+ });
+ const full=smallRepositoryFixture({scoped:false,truncated:true}),small=smallRepositoryFixture({truncated:true});
+ assert.deepEqual(normalized(await loadFixture(small)),normalized(await loadFixture(full)));
 });

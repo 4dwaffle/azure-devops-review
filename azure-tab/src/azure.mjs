@@ -4,6 +4,7 @@ import {GitRestClient} from 'azure-devops-extension-api/Git';
 import {pagedDiff,changedFiles,inferExactRenames,mapBounded,fingerprint} from './review.mjs';
 import {testProjectClassifier} from '../../test-projects.mjs';
 import {preloadContents} from './blob-content.mjs';
+import {scopedTrees} from './tree-context.mjs';
 export function contextId(configuration={}) {
  const id=configuration.pullRequestId??configuration.pullRequest?.pullRequestId;
  return Number.isSafeInteger(Number(id))&&Number(id)>0?Number(id):null;
@@ -28,8 +29,11 @@ export async function loadPullRequest(connection,id) {
  const diff=pagedDiff((skip,top)=>client.getCommitDiffs(repository,project,true,top,skip,{version:target,versionType:2},{version:source,versionType:2}));
  let latestIteration=null,threads=[],threadError;
  const comments=(async()=>{try {const iterations=await client.getPullRequestIterations(repository,id,project);const latest=[...iterations].sort((a,b)=>b.id-a.id)[0];latestIteration=latest?.sourceRefCommit?.commitId===source&&latest?.targetRefCommit?.commitId===target?latest.id:null;threads=await client.getThreads(repository,id,project,latestIteration??undefined,latestIteration??undefined);}catch(error){threadError=`Comment threads unavailable: ${error.message||error}`;}})();
- const [{base,changes}]=await Promise.all([diff,loadTree(source),diff.then(({base})=>loadTree(base))]);
+ const {base,changes}=await diff;
  let files=changedFiles(changes);
+ const scoped=await scopedTrees(client,repository,project,[base,source],files);
+ if(scoped)for(const [version,snapshot]of scoped){modes[version]=snapshot.entries;completeTrees[version]=snapshot.complete;}
+ else await Promise.all([loadTree(source),loadTree(base)]);
  const descriptor=version=>({version,versionType:2});
  const item=(path,version,content=true)=>client.getItem(repository,'/'+path,project,undefined,0,true,false,false,descriptor(version),content,false);
  const contents=new Map();
