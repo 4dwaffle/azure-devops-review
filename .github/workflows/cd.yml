@@ -7,6 +7,11 @@ on:
 permissions:
   contents: read
 
+# Keep versioned Marketplace uploads in order when main receives consecutive pushes.
+concurrency:
+  group: cd-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   version:
     name: Allocate release version
@@ -57,3 +62,36 @@ jobs:
               --title "$tag" \
               --generate-notes
           fi
+
+  marketplace:
+    name: Publish private Marketplace extension
+    needs: [version, release]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: azure-tab/package-lock.json
+      - name: Check Marketplace publishing credential
+        shell: pwsh
+        env:
+          VS_MARKETPLACE_TOKEN: ${{ secrets.VS_MARKETPLACE_TOKEN }}
+        run: |
+          if (!$env:VS_MARKETPLACE_TOKEN) { throw 'Set the VS_MARKETPLACE_TOKEN Actions secret with Marketplace publishing access to publisher VaclavBerny.' }
+      - name: Install locked publishing tools
+        run: npm ci --prefix azure-tab --no-audit --no-fund
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-packages
+          path: packages
+      - name: Publish the validated VSIX to the Marketplace
+        shell: pwsh
+        env:
+          VS_MARKETPLACE_TOKEN: ${{ secrets.VS_MARKETPLACE_TOKEN }}
+          RELEASE_VERSION: ${{ needs.version.outputs.version }}
+        run: ./.github/scripts/Publish-Marketplace.ps1 -PackageDirectory packages -Version $env:RELEASE_VERSION
