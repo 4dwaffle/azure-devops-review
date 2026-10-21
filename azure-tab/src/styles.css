@@ -10,3 +10,7 @@ main{display:grid;grid-template-columns:minmax(0,var(--sidebar-width,var(--sideb
 
 
 #comment-composer{flex:none;padding:10px 12px;border-top:1px solid var(--border-color-default);max-height:260px;overflow:auto}.comment-heading,.comment-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:12px}.comment-heading{margin-bottom:8px}#comment-range,#comment-status{color:var(--text-color-muted);overflow-wrap:anywhere}#comment-text{width:100%;min-height:60px;margin-bottom:8px}.thread-range{font-size:11px;color:var(--text-color-muted)}
+
+.comment-heading #close-comment{margin-left:auto;flex:none}
+
+#comment-panel{flex:none}
