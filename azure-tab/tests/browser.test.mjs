@@ -153,6 +153,45 @@ test('Actual Edge: Monaco, ignore worker, 40-file navigation, durable progress, 
   assert.equal(await page.evaluate(()=>localStorage.getItem('azure-filtered-review:draft:test:test:repo:7')),null);
   assert.equal(await page.evaluate(()=>window.commentPosts.length),0);
  });
+ await t.test('Closed drafts resume from empty and non-commentable views',async()=>{
+  await page.click('#add-comment');await page.fill('#comment-text','Resume from any view');await page.click('#close-comment');
+  await page.fill('#search','no-file-matches-this-query');
+  assert.equal(await page.locator('#current-file').textContent(),'Choose a file');
+  assert.equal(await page.locator('#add-comment').isEnabled(),true);
+  await page.click('#add-comment');assert.equal(await page.locator('#search').inputValue(),'');
+  assert.equal(await page.locator('#current-file').textContent(),'Code/File00.cs');
+  for(const kind of ['binary','error']){
+   await page.evaluate(async kind=>{const file=window.fixture.files[1];file.binary=kind==='binary';file.error=kind==='error'?'Fixture read failure':undefined;await window.ui.load(7);},kind);
+   await page.click('#close-comment');
+   await page.getByRole('button',{name:'Open Code/File01.cs, viewed',exact:true}).click();
+   assert.equal(await page.locator('#add-comment').isEnabled(),true);await page.click('#add-comment');
+   assert.equal(await page.locator('#current-file').textContent(),'Code/File00.cs');
+   assert.equal(await page.locator('#comment-text').inputValue(),'Resume from any view');
+  }
+  await page.click('#cancel-comment');
+  await page.getByRole('button',{name:'Open Code/File01.cs, viewed',exact:true}).click();
+  assert.equal(await page.locator('#add-comment').isDisabled(),true);
+  await page.evaluate(async()=>{delete window.fixture.files[1].binary;delete window.fixture.files[1].error;await window.ui.load(7);});
+ });
+ await t.test('Comment panel visibility persists and Add comment reveals it',async()=>{
+  await page.selectOption('#diff-layout','side-by-side');
+  await page.click('#add-comment');await page.fill('#comment-text','Hidden panel draft');await page.click('#toggle-comments');
+  for(const id of ['comment-panel','comment-composer','threads'])assert.equal(await page.locator('#'+id).isVisible(),false);
+  assert.equal(await page.locator('#toggle-comments').textContent(),'Show comments');
+  assert.equal(await page.locator('#toggle-comments').getAttribute('aria-expanded'),'false');
+  await page.click('#next');assert.equal(await page.locator('#comment-panel').isVisible(),false);
+  await page.reload();await page.waitForFunction(()=>window.ready);assert.equal(await page.locator('#comment-panel').isVisible(),false);
+  await page.click('#toggle-comments');assert.equal(await page.locator('#comment-panel').isVisible(),true);
+  assert.equal(await page.locator('#toggle-comments').getAttribute('aria-expanded'),'true');
+  assert.equal(await page.locator('#comment-text').inputValue(),'Hidden panel draft');
+  {
+   await page.click('#toggle-comments');await page.click('#add-comment');
+   await page.locator('#comment-panel').waitFor({state:'visible'});await page.locator('#comment-composer').waitFor({state:'visible'});
+   assert.equal(await page.evaluate(()=>localStorage.getItem('azure-filtered-review:comments-visible')),'true');
+  }
+  await page.click('#cancel-comment');assert.equal(await page.evaluate(()=>window.commentPosts.length),0);
+  await page.selectOption('#diff-layout','inline');
+ });
  await t.test('Closing during a request preserves it and never sends it twice',async()=>{
   await page.click('#add-comment');await page.fill('#comment-text','In-flight comment');
   await page.evaluate(()=>window.pauseCommentPost=true);await page.click('#publish-comment');
