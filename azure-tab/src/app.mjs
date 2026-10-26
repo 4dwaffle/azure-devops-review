@@ -100,7 +100,7 @@ export async function start(connection,loadReview){
    const option=$('file-order').querySelector('[value="description"]');option.disabled=!reviewOrder.matched;option.textContent=`Review order (${reviewOrder.matched})`;
    let preferred;try{preferred=localStorage.getItem(progress.key+':file-order');}catch{}
    $('file-order').value=reviewOrder.matched&&preferred!=='folders'?'description':'folders';
-   $('file-order').title=reviewOrder.unmatched.length?`Unmatched or ambiguous paths: ${reviewOrder.unmatched.join(', ')}`:reviewOrder.matched?'Folders follow their earliest listed file; unlisted siblings follow alphabetically.':'No matching Review order section in the PR description.';
+   $('file-order').title=reviewOrder.unmatched.length?`Unmatched or ambiguous paths: ${reviewOrder.unmatched.join(', ')}`:reviewOrder.matched?'Listed files follow the PR description exactly; remaining files follow in the normal folder tree.':'No matching Review order section in the PR description.';
   }
   if(!review)return;$('files').setAttribute('aria-busy',String(analysisState==='pending'));const candidates=review.files.filter(file=>classification.get(file.path)?.namespaceTextOnly&&!file.error&&!file.binary&&!file.modeChanged).length;$('namespace-hint').hidden=filters.namespaceRenames||!candidates;$('namespace-hint-text').textContent=`${candidates} namespace-only candidates remain visible. Text-only filtering is off; this is not compiler proof.`;const counts=totals(review.files,reasons,progress);$('progress').textContent=`${counts.viewed} / ${counts.total}${counts.ignored?` · ${counts.ignored} ignored`:''}`;
   if(analysisState!=='ready')$('progress').textContent+=analysisState==='pending'?' · filters pending':' · filters incomplete';
@@ -117,6 +117,12 @@ export async function start(connection,loadReview){
    }else{
     const file=node.file,row=document.createElement('div');row.className=`file-row${file.path===active?.path?' active':''}${reasons(file).length?' ignored':''}`;row.style.setProperty('--depth',node.depth);row.dataset.path=file.path;
     const button=document.createElement('button');button.dataset.focus=`file-open:${file.path}`;button.setAttribute('aria-label',`Open ${file.path}${progress.viewed(file)?', viewed':''}`);button.setAttribute('aria-current',String(file.path===active?.path));const name=document.createElement('span');name.className='file-name';name.textContent=node.name;button.append(fileIcon(file.path),name);button.title=[pathChange(file)?.paths||file.path,reviewOrder.notes.get(file.path),...reasons(file),classification.get(file.path)?.reviewReason,file.error||''].filter(Boolean).join('\n');button.onclick=safe(()=>open(file));
+    if(node.reviewRank!==undefined){
+     row.classList.add('ordered-file');const rank=document.createElement('span');rank.className='review-rank';rank.textContent=String(node.reviewRank+1);rank.setAttribute('aria-hidden','true');
+     const label=document.createElement('span');label.className='ordered-file-label';label.append(name);const directory=file.path.split('/').slice(0,-1).join('/');
+     if(directory){const path=document.createElement('span');path.className='file-directory';path.textContent=directory;label.append(path);}
+     button.replaceChildren(rank,fileIcon(file.path),label);
+    }
     const reviewed=document.createElement('input');reviewed.type='checkbox';reviewed.className='reviewed-checkbox';reviewed.dataset.focus=`file-reviewed:${file.path}`;reviewed.checked=progress.viewed(file);reviewed.disabled=!file.fingerprint;reviewed.setAttribute('aria-label',`Reviewed ${file.path}`);reviewed.title='Mark this file reviewed (saved locally)';reviewed.onchange=safe(()=>{try{progress.mark([file],reviewed.checked);}finally{render();}});row.append(reviewed,button);
     const status=document.createElement('small');const change=pathChange(file);status.textContent=file.error?'!':change?.label||file.status;status.dataset.status=file.error?'error':file.status;status.title=file.error||(change?`${change.label}: ${change.paths}${file.blobUnchanged?' · identical contents':' · inspect content changes'}`:`Change: ${file.status}`);row.append(status);rows.append(row);
    }

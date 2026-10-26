@@ -1,4 +1,10 @@
 export function buildFileTree(files,ranks) {
+ // Explicit review paths form one sequence, even across directory boundaries.
+ // Keep the remaining files in the ordinary tree after that sequence.
+ if(ranks?.size){
+  const ranked=files.filter(file=>ranks.has(file.path)).sort((a,b)=>ranks.get(a.path)-ranks.get(b.path));
+  return [...ranked.map(file=>({kind:'file',name:file.path.split('/').at(-1),path:file.path,file,depth:0,reviewRank:ranks.get(file.path)})),...buildFileTree(files.filter(file=>!ranks.has(file.path)))];
+ }
  const root={children:[],folders:new Map(),files:[]};
  for(const file of files){
   const parts=file.path.split('/');let parent=root,prefix='';
@@ -10,14 +16,12 @@ export function buildFileTree(files,ranks) {
   }
   parent.children.push({kind:'file',name:parts.at(-1),path:file.path,file});
  }
- const rank=node=>node.kind==='folder'?node.rank:ranks?.get(node.path)??Infinity;
  function sorted(node,depth){
   for(const child of node.children)if(child.kind==='folder'){
-   child.children=sorted(child,depth+1);child.rank=child.children.reduce((value,item)=>Math.min(value,rank(item)),Infinity);
+   child.children=sorted(child,depth+1);
   }
   return node.children.sort((a,b)=>{
-   const left=rank(a),right=rank(b);
-   return (left===right?0:left<right?-1:1)||(a.kind===b.kind?0:a.kind==='folder'?-1:1)||a.name.localeCompare(b.name);
+   return (a.kind===b.kind?0:a.kind==='folder'?-1:1)||a.name.localeCompare(b.name);
   }).map(child=>({...child,depth}));
  }
  return sorted(root,0);

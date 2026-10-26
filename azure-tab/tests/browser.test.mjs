@@ -317,6 +317,8 @@ test('Actual Edge: Monaco, ignore worker, 40-file navigation, durable progress, 
  await page.waitForFunction(()=>document.getElementById('notice').textContent.includes('immutable changed files loaded'));
  const listedPaths=()=>page.locator('#files .file-row').evaluateAll(rows=>rows.map(row=>row.dataset.path));
  assert.equal(await page.locator('#file-order').inputValue(),'description');assert.deepEqual(await listedPaths(),reviewTreePaths);assert.equal(await page.locator('#current-file').textContent(),reviewPaths[0]);assert.equal(await page.locator('#collapse-folders').isVisible(),true);assert.ok(await page.locator('.folder-heading').count()>0);assert.equal(await page.locator('.file-row .file-name').first().textContent(),'SetRsmAdministratorUsecase.cs');assert.match(await page.getByRole('button',{name:`Open ${reviewPaths[0]}`,exact:true}).getAttribute('title'),/constructor dependencies, authorization/);
+ assert.deepEqual(await page.locator('.ordered-file .file-directory').allTextContents(),reviewPaths.slice(0,6).map(path=>path.split('/').slice(0,-1).join('/')));
+ assert.deepEqual(await page.locator('.review-rank').allTextContents(),['1','2','3','4','5','6']);
  await page.click('#next');assert.equal(await page.locator('#current-file').textContent(),reviewPaths[1]);await page.click('#previous');assert.equal(await page.locator('#current-file').textContent(),reviewPaths[0]);
  await page.locator('body').press('j');assert.equal(await page.locator('#current-file').textContent(),reviewPaths[1]);await page.locator('body').press('k');assert.equal(await page.locator('#current-file').textContent(),reviewPaths[0]);
  await page.getByRole('checkbox',{name:`Reviewed ${reviewPaths[0]}`,exact:true}).check();await page.fill('#search','README.md');assert.deepEqual(await listedPaths(),[reviewPaths[3],reviewPaths[4]]);await page.click('#next');assert.equal(await page.locator('#current-file').textContent(),reviewPaths[4]);await page.fill('#search','');
@@ -333,11 +335,12 @@ test('Actual Edge: Monaco, ignore worker, 40-file navigation, durable progress, 
   await page.click('#next');assert.equal(await page.locator('#current-file').textContent(),normalPaths[1]);
  }
  await page.evaluate(async description=>{window.fixture.pr.description=description;await window.ui.load(15);},reviewDescription);assert.equal(await page.locator('#file-order').inputValue(),'description');assert.deepEqual(await listedPaths(),reviewTreePaths);
- // Navigation follows the reordered folder tree, including unlisted siblings.
- await page.getByRole('button',{name:`Open ${reviewPaths[1]}`,exact:true}).click();await page.click('#next');assert.equal(await page.locator('#current-file').textContent(),reviewPaths[3]);await page.click('#next');assert.equal(await page.locator('#current-file').textContent(),reviewPaths[2]);
- await page.getByRole('button',{name:`Open ${reviewPaths[4]}`,exact:true}).click();await page.click('#next');assert.equal(await page.locator('#current-file').textContent(),reviewPaths[7]);
- await page.click('#collapse-folders');assert.equal(await page.locator('.file-row').count(),1);await page.getByRole('button',{name:'Expand folder src',exact:true}).click();await page.fill('#search','PayrollWorkers');assert.equal(await page.locator('.file-row').count(),3);assert.match(await page.locator('.file-row button').first().getAttribute('title'),/constructor dependencies/);await page.fill('#search','');
- await page.selectOption('#file-order','folders');await page.getByRole('button',{name:`Open ${reviewPaths[0]}, viewed`,exact:true}).click();assert.match(await page.getByRole('button',{name:`Open ${reviewPaths[0]}, viewed`,exact:true}).getAttribute('title'),/constructor dependencies/);
+ // Every navigation step follows the description exactly, then the remaining tree.
+ await page.getByRole('button',{name:`Open ${reviewPaths[0]}, viewed`,exact:true}).click();
+ for(const path of [...reviewTreePaths.slice(1),reviewTreePaths[0]]){await page.click('#next');assert.equal(await page.locator('#current-file').textContent(),path);}
+ for(const path of reviewTreePaths.toReversed()){await page.locator('body').press('k');assert.equal(await page.locator('#current-file').textContent(),path);}
+ await page.click('#collapse-folders');assert.equal(await page.locator('.file-row').count(),7);assert.equal(await page.locator('.ordered-file').count(),6);await page.getByRole('button',{name:'Expand folder src',exact:true}).click();await page.fill('#search','PayrollWorkers');assert.equal(await page.locator('.file-row').count(),3);assert.match(await page.locator('.file-row button').first().getAttribute('title'),/constructor dependencies/);await page.fill('#search','');
+ await page.selectOption('#file-order','folders');await page.fill('#search','SetRsmAdministratorUsecase.cs');await page.getByRole('button',{name:`Open ${reviewPaths[0]}, viewed`,exact:true}).click();assert.match(await page.getByRole('button',{name:`Open ${reviewPaths[0]}, viewed`,exact:true}).getAttribute('title'),/constructor dependencies/);await page.fill('#search','');
  assert.deepEqual(external,[]);assert.deepEqual(errors,[]);
  assert.deepEqual(compilerRequests,[],'Legacy compiler preferences never trigger compiler requests');
  }finally{await browser?.close();await new Promise(resolve=>server.close(resolve));await rm(directory,{recursive:true,force:true});}
